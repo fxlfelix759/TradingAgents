@@ -164,6 +164,70 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Portfolio Manager — time-horizon and options sub-models
+# ---------------------------------------------------------------------------
+
+
+class TimeHorizonRecommendation(BaseModel):
+    """Directional recommendation for a specific time horizon."""
+
+    action: TraderAction = Field(
+        description="Directional action for this horizon: Buy, Hold, or Sell.",
+    )
+    rationale: str = Field(
+        description=(
+            "Two to three sentences explaining the key drivers and risks "
+            "for this specific time frame."
+        ),
+    )
+    price_target: Optional[float] = Field(
+        default=None,
+        description="Optional price target for this horizon in the instrument's quote currency.",
+    )
+    key_catalysts: str = Field(
+        description=(
+            "Comma-separated list of the most important upcoming catalysts "
+            "(events, data releases, technical levels) relevant to this horizon."
+        ),
+    )
+
+
+class OptionsRecommendation(BaseModel):
+    """Options strategy recommendation tied to the near/medium-term outlook."""
+
+    strategy: str = Field(
+        description=(
+            "Name of the recommended options strategy, e.g. 'Long Call', "
+            "'Bull Put Spread', 'Covered Call', 'Long Straddle', 'Cash-Secured Put'."
+        ),
+    )
+    rationale: str = Field(
+        description=(
+            "Why this options strategy fits the current outlook, implied-volatility "
+            "environment, and risk/reward preference. Two to four sentences."
+        ),
+    )
+    suggested_expiry: str = Field(
+        description=(
+            "Recommended expiry window, e.g. '7-14 DTE for the short-term play, "
+            "30-45 DTE for the medium-term play'."
+        ),
+    )
+    strike_guidance: str = Field(
+        description=(
+            "Strike selection guidance relative to the current price, "
+            "e.g. 'ATM call' or '5% OTM put spread with the short leg at support'."
+        ),
+    )
+    risk_reward: str = Field(
+        description=(
+            "Plain-language risk/reward summary, e.g. "
+            "'Max loss: premium paid (~$150); target: 2–3× if thesis plays out within 2 weeks'."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Portfolio Manager
 # ---------------------------------------------------------------------------
 
@@ -198,12 +262,41 @@ class PortfolioDecision(BaseModel):
     )
     price_target: Optional[float] = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        description="Optional overall target price in the instrument's quote currency.",
     )
-    time_horizon: Optional[str] = Field(
-        default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+    short_term: TimeHorizonRecommendation = Field(
+        description=(
+            "1-week outlook: a concrete Buy/Hold/Sell call with rationale, "
+            "an optional price target, and the key catalysts for the next 7 days."
+        ),
     )
+    medium_term: TimeHorizonRecommendation = Field(
+        description=(
+            "1-month outlook: a concrete Buy/Hold/Sell call with rationale, "
+            "an optional price target, and the key catalysts for the next 30 days."
+        ),
+    )
+    long_term: TimeHorizonRecommendation = Field(
+        description=(
+            "6-month outlook: a concrete Buy/Hold/Sell call with rationale, "
+            "an optional price target, and the key catalysts for the next 6 months."
+        ),
+    )
+    options_analysis: OptionsRecommendation = Field(
+        description=(
+            "An options strategy recommendation consistent with the overall "
+            "directional view, including strategy name, rationale, expiry window, "
+            "strike guidance, and risk/reward."
+        ),
+    )
+
+
+def _render_horizon(label: str, h: TimeHorizonRecommendation) -> list[str]:
+    parts = [f"### {label}", "", f"**Action**: {h.action.value}", "", f"**Rationale**: {h.rationale}"]
+    if h.price_target is not None:
+        parts.extend(["", f"**Price Target**: {h.price_target}"])
+    parts.extend(["", f"**Key Catalysts**: {h.key_catalysts}"])
+    return parts
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
@@ -223,6 +316,32 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
-    if decision.time_horizon:
-        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+
+    # Time-horizon recommendations
+    parts.extend(["", "---", "", "## Trading Recommendations by Time Horizon", ""])
+    parts.extend(_render_horizon("Short Term (1 Week)", decision.short_term))
+    parts.extend([""])
+    parts.extend(_render_horizon("Medium Term (1 Month)", decision.medium_term))
+    parts.extend([""])
+    parts.extend(_render_horizon("Long Term (6 Months)", decision.long_term))
+
+    # Options analysis
+    opt = decision.options_analysis
+    parts.extend([
+        "",
+        "---",
+        "",
+        "## Options Analysis & Recommendation",
+        "",
+        f"**Strategy**: {opt.strategy}",
+        "",
+        f"**Rationale**: {opt.rationale}",
+        "",
+        f"**Suggested Expiry**: {opt.suggested_expiry}",
+        "",
+        f"**Strike Guidance**: {opt.strike_guidance}",
+        "",
+        f"**Risk / Reward**: {opt.risk_reward}",
+    ])
+
     return "\n".join(parts)

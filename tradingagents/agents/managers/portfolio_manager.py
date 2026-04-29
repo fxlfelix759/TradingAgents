@@ -39,6 +39,13 @@ def create_portfolio_manager(llm):
             else ""
         )
 
+        options_report = state.get("options_report", "")
+        options_line = (
+            f"- Options chain analysis (OI concentration, IV, Max Pain, P/C ratio):\n{options_report}\n"
+            if options_report
+            else ""
+        )
+
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
 {instrument_context}
@@ -55,11 +62,22 @@ def create_portfolio_manager(llm):
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
-{lessons_line}
+{options_line}{lessons_line}
 **Risk Analysts Debate History:**
 {history}
 
 ---
+
+**Required output sections:**
+
+1. **Overall rating** — one of the five tiers above.
+2. **Executive summary** — 2-4 sentences covering entry strategy, sizing, and key risk levels.
+3. **Investment thesis** — detailed reasoning anchored in specific evidence.
+4. **Time-horizon recommendations** — provide a separate Buy/Hold/Sell call, rationale, optional price target, and key catalysts for each of:
+   - **Short term (1 week)**: focus on near-term price action, upcoming events, and technical levels.
+   - **Medium term (1 month)**: focus on earnings, macro data, and intermediate trend.
+   - **Long term (6 months)**: focus on fundamental valuation, secular trends, and strategic positioning.
+5. **Options strategy** — use the options chain data (OI walls, Max Pain, IV level) to recommend a concrete strategy. Align strike selection with the OI concentration levels and set expiry consistent with the relevant time horizon. Specify strategy name, rationale, suggested expiry, strike guidance, and plain-language risk/reward.
 
 Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
 

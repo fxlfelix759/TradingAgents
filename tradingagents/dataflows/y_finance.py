@@ -405,18 +405,151 @@ def get_insider_transactions(
     try:
         ticker_obj = yf.Ticker(ticker.upper())
         data = yf_retry(lambda: ticker_obj.insider_transactions)
-        
+
         if data is None or data.empty:
             return f"No insider transactions data found for symbol '{ticker}'"
-            
+
         # Convert to CSV string for consistency with other functions
         csv_string = data.to_csv()
-        
+
         # Add header information
         header = f"# Insider Transactions data for {ticker.upper()}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        
+
         return header + csv_string
-        
+
     except Exception as e:
         return f"Error retrieving insider transactions for {ticker}: {str(e)}"
+
+
+def _compute_max_pain(calls: "pd.DataFrame", puts: "pd.DataFrame") -> float:
+    """Compute the max pain strike: the price at which total option value is minimised."""
+    all_strikes = sorted(set(calls["strike"].tolist() + puts["strike"].tolist()))
+    min_pain = float("inf")
+    max_pain_strike = all_strikes[0]
+    for s in all_strikes:
+        call_pain = float(((calls["strike"] - s).clip(lower=0) * calls["openInterest"].fillna(0)).sum())
+        put_pain  = float(((s - puts["strike"]).clip(lower=0)  * puts["openInterest"].fillna(0)).sum())
+        total = call_pain + put_pain
+        if total < min_pain:
+            min_pain = total
+            max_pain_strike = s
+    return max_pain_strike
+
+
+def get_options_chain_yfinance(
+    ticker: Annotated[str, "ticker symbol of the company"],
+    trade_date: Annotated[str, "current trading date in YYYY-MM-DD format, used to pick near-term expirations"],
+    num_expirations: Annotated[int, "number of nearest expiration dates to analyse (default 3)"] = 3,
+) -> str:
+    """
+    Fetch options chain data for the nearest expiration dates and compute:
+    - Open interest (OI) distribution for calls and puts at each strike
+    - Max Pain strike per expiration
+    - Put/Call OI ratio per expiration
+    - Implied volatility distribution
+    - Overall market sentiment from OI positioning
+
+    Returns a markdown-formatted report suitable for LLM consumption.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker.upper())
+        expirations = yf_retry(lambda: ticker_obj.options)
+
+        if not expirations:
+            return f"No options data available for {ticker.upper()}. The ticker may not have listed options (e.g. international stocks, ETFs without options)."
+
+        # Filter to expirations on or after trade_date
+        try:
+            ref = datetime.strptime(trade_date, "%Y-%m-%d").date()
+        except ValueError:
+            ref = datetime.today().date()
+
+        future_exps = [e for e in expirations if datetime.strptime(e, "%Y-%m-%d").date() >= ref]
+        if not future_exps:
+            future_exps = list(expirations)  # fallback: use all
+        selected = future_exps[:num_expirations]
+
+        current_price_info = yf_retry(lambda: ticker_obj.fast_info)
+        try:
+            current_price = round(float(current_price_info.last_price), 2)
+        except Exception:
+            current_price = None
+
+        lines = [
+            f"# Options Chain Analysis for {ticker.upper()}",
+            f"# Trade date: {trade_date}",
+            f"# Current price: {current_price if current_price else 'N/A'}",
+            f"# Data retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+
+        for exp in selected:
+            chain = yf_retry(lambda e=exp: ticker_obj.option_chain(e))
+            calls = chain.calls.copy()
+            puts  = chain.puts.copy()
+
+            # Drop rows with zero/NaN OI for cleaner analysis
+            calls_oi = calls[calls["openInterest"].fillna(0) > 0].copy()
+            puts_oi  = puts[puts["openInterest"].fillna(0) > 0].copy()
+
+            total_call_oi = int(calls_oi["openInterest"].sum())
+            total_put_oi  = int(puts_oi["openInterest"].sum())
+            pc_ratio = round(total_put_oi / total_call_oi, 3) if total_call_oi > 0 else float("nan")
+
+            max_pain = _compute_max_pain(
+                calls[["strike", "openInterest"]].copy(),
+                puts[["strike", "openInterest"]].copy(),
+            )
+
+            # Top 5 strikes by OI for calls and puts
+            top_calls = (
+                calls_oi.nlargest(5, "openInterest")[
+                    ["strike", "openInterest", "volume", "impliedVolatility", "inTheMoney"]
+                ].reset_index(drop=True)
+            )
+            top_puts = (
+                puts_oi.nlargest(5, "openInterest")[
+                    ["strike", "openInterest", "volume", "impliedVolatility", "inTheMoney"]
+                ].reset_index(drop=True)
+            )
+
+            # Average IV weighted by OI
+            def weighted_iv(df):
+                oi = df["openInterest"].fillna(0)
+                iv = df["impliedVolatility"].fillna(0)
+                total = oi.sum()
+                return round(float((iv * oi).sum() / total), 4) if total > 0 else float("nan")
+
+            avg_call_iv = weighted_iv(calls_oi)
+            avg_put_iv  = weighted_iv(puts_oi)
+
+            # Sentiment interpretation
+            if pc_ratio < 0.7:
+                sentiment = "Bullish (call-heavy positioning)"
+            elif pc_ratio > 1.3:
+                sentiment = "Bearish (put-heavy positioning)"
+            else:
+                sentiment = "Neutral (balanced positioning)"
+
+            lines += [
+                f"## Expiration: {exp}",
+                "",
+                f"- **Current Price**: {current_price}",
+                f"- **Max Pain Strike**: {max_pain}",
+                f"- **Put/Call OI Ratio**: {pc_ratio}  → {sentiment}",
+                f"- **Total Call OI**: {total_call_oi:,}  |  **Total Put OI**: {total_put_oi:,}",
+                f"- **Avg Call IV (OI-weighted)**: {avg_call_iv:.1%}  |  **Avg Put IV**: {avg_put_iv:.1%}",
+                "",
+                "### Top 5 Call Strikes by Open Interest",
+                top_calls.to_string(index=False),
+                "",
+                "### Top 5 Put Strikes by Open Interest",
+                top_puts.to_string(index=False),
+                "",
+            ]
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error retrieving options chain for {ticker}: {str(e)}"
