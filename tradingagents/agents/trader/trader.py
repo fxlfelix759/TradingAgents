@@ -21,6 +21,12 @@ def create_trader(llm):
         company_name = state["company_of_interest"]
         instrument_context = build_instrument_context(company_name)
         investment_plan = state["investment_plan"]
+        change_report = state.get("change_report", "")
+        change_block = (
+            f"\n\nChange since last analysis (from the Change Analyst):\n{change_report}"
+            if change_report
+            else ""
+        )
 
         messages = [
             {
@@ -38,7 +44,7 @@ def create_trader(llm):
                     f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for evaluating your next "
-                    f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
+                    f"trading decision.\n\nProposed Investment Plan: {investment_plan}{change_block}\n\n"
                     f"Leverage these insights to make an informed and strategic decision."
                 ),
             },

@@ -46,6 +46,13 @@ def create_portfolio_manager(llm):
             else ""
         )
 
+        change_report = state.get("change_report", "")
+        change_line = (
+            f"- Change since last analysis (from the Change Analyst):\n{change_report}\n"
+            if change_report
+            else ""
+        )
+
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
 {instrument_context}
@@ -62,7 +69,7 @@ def create_portfolio_manager(llm):
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
-{options_line}{lessons_line}
+{options_line}{change_line}{lessons_line}
 **Risk Analysts Debate History:**
 {history}
 
