@@ -19,7 +19,7 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -343,5 +343,168 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         "",
         f"**Risk / Reward**: {opt.risk_reward}",
     ])
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Option Trade Evaluator — input models and output schema
+# ---------------------------------------------------------------------------
+
+
+class OptionLeg(BaseModel):
+    """A single leg in an option strategy."""
+
+    action: Literal["buy", "sell"] = Field(
+        description="Whether this leg is a long (buy) or short (sell) position."
+    )
+    option_type: Literal["call", "put"] = Field(
+        description="Call or put."
+    )
+    strike: float = Field(
+        description="Strike price of this leg."
+    )
+    expiration: str = Field(
+        description="Expiration date in YYYY-MM-DD format."
+    )
+
+
+class TargetOption(BaseModel):
+    """User-specified option strategy to evaluate."""
+
+    ticker: str = Field(description="Underlying ticker symbol.")
+    strategy: str = Field(
+        description=(
+            "Strategy identifier, e.g. 'long_call', 'call_debit_spread', 'iron_condor'."
+        )
+    )
+    legs: List[OptionLeg] = Field(description="All legs of the strategy in order.")
+    user_notes: Optional[str] = Field(
+        default=None,
+        description="User-supplied constraints or rationale, e.g. budget limits.",
+    )
+
+
+class ParameterTweak(BaseModel):
+    """Same strategy structure, better parameters."""
+
+    legs: List[OptionLeg] = Field(description="Full revised leg set.")
+    rationale: str = Field(description="Why these parameters are better.")
+    estimated_cost_change: str = Field(
+        description="Rough cost impact, e.g. '~$30 cheaper per contract'."
+    )
+
+
+class StrategyAlternative(BaseModel):
+    """A fundamentally different strategy that better fits the current conditions."""
+
+    strategy: str = Field(description="Strategy name, e.g. 'Bull Call Spread'.")
+    legs: List[OptionLeg] = Field(description="All legs of the alternative strategy.")
+    rationale: str = Field(description="Why this alternative fits the thesis better.")
+    tradeoff: str = Field(description="What the trader gives up vs the original strategy.")
+
+
+class OptionEvaluationReport(BaseModel):
+    """Structured evaluation of a user-specified option strategy."""
+
+    verdict: Literal["Strong Buy", "Buy", "Neutral", "Avoid", "Strong Avoid"] = Field(
+        description=(
+            "Overall assessment: 'Strong Buy' = well-aligned and attractively priced; "
+            "'Strong Avoid' = conflicts with thesis or mispriced; 'Neutral' = acceptable but not optimal."
+        )
+    )
+    thesis_alignment: str = Field(
+        description=(
+            "How well the strategy's direction and time horizon align with the Portfolio "
+            "Manager's verdict and the analyst reports. Note any mismatches."
+        )
+    )
+    contract_analysis: str = Field(
+        description=(
+            "Analysis of the specific contract(s): IV level vs historical context, "
+            "Greeks (delta/theta/vega), bid-ask spread, open interest liquidity."
+        )
+    )
+    risk_assessment: str = Field(
+        description=(
+            "Key risks: daily theta decay in dollar terms, breakeven price at expiry, "
+            "max loss, IV crush risk (e.g. post-earnings), and probability of profit."
+        )
+    )
+    parameter_tweaks: List[ParameterTweak] = Field(
+        description=(
+            "Up to 3 tweaks to the same strategy structure that improve risk/reward. "
+            "Each must comply with user_notes constraints."
+        )
+    )
+    strategy_alternatives: List[StrategyAlternative] = Field(
+        description=(
+            "Up to 3 alternative strategy structures that better fit the current conditions. "
+            "Suppress any that violate user_notes constraints."
+        )
+    )
+    constraints_acknowledged: str = Field(
+        description=(
+            "Explicit acknowledgement of each constraint in user_notes and how it "
+            "shaped the suggestions. If user_notes is empty, write 'No constraints provided.'"
+        )
+    )
+    summary: str = Field(
+        description=(
+            "One-paragraph executive summary covering verdict, key reason, primary "
+            "risk, and the single best modification or alternative."
+        )
+    )
+
+
+def render_option_evaluation(report: OptionEvaluationReport) -> str:
+    """Render an OptionEvaluationReport to markdown."""
+
+    def fmt_leg(leg: OptionLeg) -> str:
+        return f"{leg.action.capitalize()} {leg.option_type.upper()} ${leg.strike} exp {leg.expiration}"
+
+    parts = [
+        f"**Verdict**: {report.verdict}",
+        "",
+        "### Thesis Alignment",
+        report.thesis_alignment,
+        "",
+        "### Contract Analysis",
+        report.contract_analysis,
+        "",
+        "### Risk Assessment",
+        report.risk_assessment,
+    ]
+
+    if report.parameter_tweaks:
+        parts += ["", "### Parameter Tweaks"]
+        for i, tweak in enumerate(report.parameter_tweaks, 1):
+            legs_str = " / ".join(fmt_leg(leg) for leg in tweak.legs)
+            parts += [
+                "",
+                f"**Tweak {i}**: {legs_str}",
+                f"- Rationale: {tweak.rationale}",
+                f"- Cost change: {tweak.estimated_cost_change}",
+            ]
+
+    if report.strategy_alternatives:
+        parts += ["", "### Strategy Alternatives"]
+        for i, alt in enumerate(report.strategy_alternatives, 1):
+            legs_str = " / ".join(fmt_leg(leg) for leg in alt.legs)
+            parts += [
+                "",
+                f"**Alternative {i} — {alt.strategy}**: {legs_str}",
+                f"- Rationale: {alt.rationale}",
+                f"- Tradeoff: {alt.tradeoff}",
+            ]
+
+    parts += [
+        "",
+        "### Constraints Acknowledged",
+        report.constraints_acknowledged,
+        "",
+        "### Summary",
+        report.summary,
+    ]
 
     return "\n".join(parts)
