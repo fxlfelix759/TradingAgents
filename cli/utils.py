@@ -5,6 +5,7 @@ from rich.console import Console
 
 from cli.models import AnalystType
 from tradingagents.llm_clients.model_catalog import get_model_options
+from tradingagents.agents.schemas import OptionLeg, TargetOption
 
 console = Console()
 
@@ -358,3 +359,145 @@ def ask_output_language() -> str:
         ).ask().strip()
 
     return choice
+
+
+# ---------------------------------------------------------------------------
+# Option strategy selection
+# ---------------------------------------------------------------------------
+
+STRATEGY_TAXONOMY = {
+    "Single Leg": [
+        ("Long Call", "long_call", [{"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call)"}]),
+        ("Long Put", "long_put", [{"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put)"}]),
+        ("Short Call", "short_call", [{"action": "sell", "option_type": "call", "label": "Leg 1 (Sell Call)"}]),
+        ("Short Put", "short_put", [{"action": "sell", "option_type": "put", "label": "Leg 1 (Sell Put)"}]),
+    ],
+    "Vertical Spread": [
+        ("Call Debit Spread", "call_debit_spread", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call — lower strike)"},
+            {"action": "sell", "option_type": "call", "label": "Leg 2 (Sell Call — higher strike)"},
+        ]),
+        ("Call Credit Spread", "call_credit_spread", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell Call — lower strike)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 2 (Buy Call — higher strike)"},
+        ]),
+        ("Put Debit Spread", "put_debit_spread", [
+            {"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put — higher strike)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell Put — lower strike)"},
+        ]),
+        ("Put Credit Spread", "put_credit_spread", [
+            {"action": "sell", "option_type": "put", "label": "Leg 1 (Sell Put — higher strike)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy Put — lower strike)"},
+        ]),
+    ],
+    "Calendar": [
+        ("Call Calendar", "call_calendar", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call — far expiry)"},
+            {"action": "sell", "option_type": "call", "label": "Leg 2 (Sell Call — near expiry, same strike)"},
+        ]),
+        ("Put Calendar", "put_calendar", [
+            {"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put — far expiry)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell Put — near expiry, same strike)"},
+        ]),
+    ],
+    "Volatility": [
+        ("Straddle", "straddle", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy Put — same strike)"},
+        ]),
+        ("Strangle", "strangle", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy OTM Call)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy OTM Put)"},
+        ]),
+    ],
+    "Multi-Leg": [
+        ("Iron Condor", "iron_condor", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell OTM Call)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 2 (Buy further OTM Call — wing)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 3 (Sell OTM Put)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 4 (Buy further OTM Put — wing)"},
+        ]),
+        ("Iron Butterfly", "iron_butterfly", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell ATM Call)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell ATM Put — same strike)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 3 (Buy OTM Call — wing)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 4 (Buy OTM Put — wing)"},
+        ]),
+    ],
+}
+
+_OPTION_STYLE = questionary.Style([
+    ("selected", "fg:cyan noinherit"),
+    ("highlighted", "noinherit"),
+])
+
+
+def ask_option_strategy(ticker: str) -> Optional[TargetOption]:
+    """Interactive multi-step prompt to collect an option strategy. Returns None if skipped."""
+    wants_eval = questionary.confirm(
+        "Evaluate a specific option strategy?",
+        default=False,
+        style=_OPTION_STYLE,
+    ).ask()
+    if not wants_eval:
+        return None
+
+    category = questionary.select(
+        "Select strategy category:",
+        choices=list(STRATEGY_TAXONOMY.keys()),
+        style=_OPTION_STYLE,
+    ).ask()
+    if not category:
+        return None
+
+    strategies = STRATEGY_TAXONOMY[category]
+    selection = questionary.select(
+        "Select strategy:",
+        choices=[
+            questionary.Choice(display, value=(display, key, template))
+            for display, key, template in strategies
+        ],
+        style=_OPTION_STYLE,
+    ).ask()
+    if not selection:
+        return None
+    _display, strategy_key, legs_template = selection
+
+    legs = []
+    for leg_def in legs_template:
+        console.print(f"\n[cyan]{leg_def['label']}[/cyan]")
+        strike = questionary.text(
+            "Strike price:",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric strike price.",
+        ).ask()
+        if strike is None:
+            return None
+
+        expiration = questionary.text(
+            "Expiration date (YYYY-MM-DD):",
+            validate=lambda x: (
+                len(x) == 10 and x[4] == "-" and x[7] == "-"
+            ) or "Use YYYY-MM-DD format.",
+        ).ask()
+        if expiration is None:
+            return None
+
+        legs.append(OptionLeg(
+            action=leg_def["action"],
+            option_type=leg_def["option_type"],
+            strike=float(strike),
+            expiration=expiration,
+        ))
+
+    user_notes = questionary.text(
+        "Any constraints or context? (optional — press Enter to skip)\n"
+        "  e.g. 'Max $200/strategy. Don't widen the spread.'",
+        default="",
+    ).ask()
+
+    return TargetOption(
+        ticker=ticker,
+        strategy=strategy_key,
+        legs=legs,
+        user_notes=user_notes.strip() if user_notes and user_notes.strip() else None,
+    )
