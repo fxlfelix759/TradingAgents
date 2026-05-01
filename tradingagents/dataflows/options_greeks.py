@@ -49,6 +49,10 @@ def compute_greeks(
     T = max(T, 1e-6)
     sigma = max(sigma, 1e-6)
 
+    otype = option_type.lower()
+    if otype not in ("call", "put"):
+        raise ValueError(f"option_type must be 'call' or 'put', got {option_type!r}")
+
     d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
     d2 = d1 - sigma * math.sqrt(T)
 
@@ -58,13 +62,13 @@ def compute_greeks(
     gamma = pdf_d1 / (S * sigma * sqrt_T)
     vega = S * pdf_d1 * sqrt_T / 100  # per 1% change in IV
 
-    if option_type.lower() == "call":
+    if otype == "call":
         delta = norm.cdf(d1)
         theta = (
             -S * pdf_d1 * sigma / (2 * sqrt_T)
             - r * K * math.exp(-r * T) * norm.cdf(d2)
         ) / 365
-    else:  # put
+    else:  # otype == "put"
         delta = norm.cdf(d1) - 1
         theta = (
             -S * pdf_d1 * sigma / (2 * sqrt_T)

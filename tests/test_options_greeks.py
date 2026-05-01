@@ -30,11 +30,22 @@ def test_gamma_positive():
         assert g["gamma"] > 0
 
 
-def test_theta_negative():
-    """Theta should be negative (time decay costs the holder)."""
-    for otype in ("call", "put"):
-        g = compute_greeks(S=100, K=100, T=0.25, r=0.05, sigma=0.3, option_type=otype)
-        assert g["theta"] < 0
+def test_call_theta_negative():
+    """Theta for calls is always negative."""
+    g = compute_greeks(S=100, K=100, T=0.25, r=0.05, sigma=0.3, option_type="call")
+    assert g["theta"] < 0
+
+
+def test_put_theta_atm_negative():
+    """Theta for ATM puts is negative."""
+    g = compute_greeks(S=100, K=100, T=0.25, r=0.05, sigma=0.3, option_type="put")
+    assert g["theta"] < 0
+
+
+def test_invalid_option_type_raises():
+    """compute_greeks raises ValueError for unknown option_type."""
+    with pytest.raises(ValueError, match="option_type must be"):
+        compute_greeks(S=100, K=100, T=0.25, r=0.05, sigma=0.2, option_type="long")
 
 
 def test_vega_positive():
@@ -69,3 +80,10 @@ def test_get_risk_free_rate_mocked():
     with patch("tradingagents.dataflows.options_greeks.yf.Ticker", return_value=mock_ticker):
         r = get_risk_free_rate()
     assert abs(r - 0.0525) < 1e-6
+
+
+def test_get_risk_free_rate_fallback():
+    """get_risk_free_rate returns 0.05 when yfinance raises."""
+    with patch("tradingagents.dataflows.options_greeks.yf.Ticker", side_effect=Exception("network")):
+        r = get_risk_free_rate()
+    assert r == 0.05
