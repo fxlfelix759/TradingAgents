@@ -188,6 +188,11 @@ class GraphSetup:
             },
         )
 
-        workflow.add_edge("Portfolio Manager", END)
+        # Option Trade Evaluator (no-op when target_option is absent)
+        from tradingagents.agents import create_option_trade_evaluator
+        option_evaluator_node = create_option_trade_evaluator(self.deep_thinking_llm)
+        workflow.add_node("Option Trade Evaluator", option_evaluator_node)
+        workflow.add_edge("Portfolio Manager", "Option Trade Evaluator")
+        workflow.add_edge("Option Trade Evaluator", END)
 
         return workflow
