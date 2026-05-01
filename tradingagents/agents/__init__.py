@@ -5,6 +5,7 @@ from .analysts.change_analyst import create_change_analyst
 from .analysts.fundamentals_analyst import create_fundamentals_analyst
 from .analysts.market_analyst import create_market_analyst
 from .analysts.news_analyst import create_news_analyst
+from .analysts.option_trade_evaluator import create_option_trade_evaluator
 from .analysts.options_analyst import create_options_analyst
 from .analysts.social_media_analyst import create_social_media_analyst
 
@@ -33,6 +34,7 @@ __all__ = [
     "create_market_analyst",
     "create_neutral_debator",
     "create_news_analyst",
+    "create_option_trade_evaluator",
     "create_options_analyst",
     "create_aggressive_debator",
     "create_portfolio_manager",

@@ -144,3 +144,68 @@ def test_full_options_chain_no_options_returns_message():
         result = get_full_options_chain_for_target("FAKE", "2026-05-16")
 
     assert "No options data available" in result
+
+
+from tradingagents.agents.analysts.option_trade_evaluator import create_option_trade_evaluator
+from tradingagents.agents.schemas import OptionLeg, TargetOption
+
+
+def _make_target_option():
+    return TargetOption(
+        ticker="NVDA",
+        strategy="long_call",
+        legs=[OptionLeg(action="buy", option_type="call", strike=130.0, expiration="2026-05-16")],
+        user_notes="Max $300 per contract.",
+    )
+
+
+def _make_state(target_option=None):
+    return {
+        "company_of_interest": "NVDA",
+        "trade_date": "2026-04-30",
+        "target_option": target_option,
+        "final_trade_decision": "**Rating**: Buy\n**Executive Summary**: Bullish on NVDA.",
+        "investment_plan": "Buy with strong conviction.",
+        "trader_investment_plan": "FINAL TRANSACTION PROPOSAL: **BUY**",
+        "market_report": "Bullish technicals.",
+        "fundamentals_report": "Strong earnings.",
+        "sentiment_report": "Positive sentiment.",
+        "news_report": "No adverse news.",
+        "options_report": "Moderate IV.",
+        "messages": [],
+    }
+
+
+def test_evaluator_noop_when_no_target_option(mock_llm_client):
+    """OptionTradeEvaluator returns empty dict when target_option is None."""
+    node = create_option_trade_evaluator(mock_llm_client.get_llm())
+    result = node(_make_state(target_option=None))
+    assert result == {}
+
+
+def test_evaluator_calls_llm_when_target_option_set(mock_llm_client):
+    """OptionTradeEvaluator calls the structured LLM when target_option is present."""
+    from tradingagents.agents.schemas import OptionEvaluationReport
+
+    mock_report = OptionEvaluationReport(
+        verdict="Buy",
+        thesis_alignment="Aligned.",
+        contract_analysis="IV is reasonable.",
+        risk_assessment="Max loss is premium.",
+        parameter_tweaks=[],
+        strategy_alternatives=[],
+        constraints_acknowledged="Budget $300 noted.",
+        summary="Good trade.",
+    )
+
+    structured_mock = MagicMock()
+    structured_mock.invoke.return_value = mock_report
+    mock_llm_client.get_llm.return_value.with_structured_output.return_value = structured_mock
+
+    with patch("tradingagents.agents.analysts.option_trade_evaluator.get_full_options_chain_for_target",
+               return_value="# Full chain data..."):
+        node = create_option_trade_evaluator(mock_llm_client.get_llm())
+        result = node(_make_state(target_option=_make_target_option()))
+
+    assert "option_evaluation_report" in result
+    assert "**Verdict**: Buy" in result["option_evaluation_report"]
