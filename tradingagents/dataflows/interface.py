@@ -10,6 +10,7 @@ from .y_finance import (
     get_income_statement as get_yfinance_income_statement,
     get_insider_transactions as get_yfinance_insider_transactions,
     get_options_chain_yfinance,
+    get_full_options_chain_for_target as get_full_options_chain_for_target_yfinance,
 )
 from .yfinance_news import get_news_yfinance, get_global_news_yfinance
 from .alpha_vantage import (
@@ -118,6 +119,9 @@ VENDOR_METHODS = {
     "get_options_chain": {
         "yfinance": get_options_chain_yfinance,
     },
+    "get_full_options_chain_for_target": {
+        "yfinance": get_full_options_chain_for_target_yfinance,
+    },
 }
 
 def get_category_for_method(method: str) -> str:
@@ -171,3 +175,12 @@ def route_to_vendor(method: str, *args, **kwargs):
             continue  # Only rate limits trigger fallback
 
     raise RuntimeError(f"No available vendor for '{method}'")
+
+
+def get_full_options_chain_for_target(
+    ticker: str,
+    target_expiry: str,
+    num_neighbors: int = 2,
+) -> str:
+    """Route full chain fetch to yfinance (only vendor that supports this)."""
+    return get_full_options_chain_for_target_yfinance(ticker, target_expiry, num_neighbors)
