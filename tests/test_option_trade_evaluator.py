@@ -209,3 +209,43 @@ def test_evaluator_calls_llm_when_target_option_set(mock_llm_client):
 
     assert "option_evaluation_report" in result
     assert "**Verdict**: Buy" in result["option_evaluation_report"]
+
+
+@pytest.mark.smoke
+def test_full_evaluator_pipeline_smoke(mock_llm_client):
+    """End-to-end smoke: evaluator node produces a report for a multi-leg strategy."""
+    from tradingagents.agents.schemas import OptionEvaluationReport
+
+    mock_report = OptionEvaluationReport(
+        verdict="Neutral",
+        thesis_alignment="Partially aligned.",
+        contract_analysis="IV is elevated at 45%.",
+        risk_assessment="Theta decay is $8/day.",
+        parameter_tweaks=[],
+        strategy_alternatives=[],
+        constraints_acknowledged="No constraints provided.",
+        summary="Acceptable trade but not optimal given IV environment.",
+    )
+    structured_mock = MagicMock()
+    structured_mock.invoke.return_value = mock_report
+    mock_llm_client.get_llm.return_value.with_structured_output.return_value = structured_mock
+
+    target = TargetOption(
+        ticker="AAPL",
+        strategy="call_debit_spread",
+        legs=[
+            OptionLeg(action="buy", option_type="call", strike=200.0, expiration="2026-05-30"),
+            OptionLeg(action="sell", option_type="call", strike=210.0, expiration="2026-05-30"),
+        ],
+    )
+
+    with patch(
+        "tradingagents.agents.analysts.option_trade_evaluator.get_full_options_chain_for_target",
+        return_value="# Mocked full chain",
+    ):
+        node = create_option_trade_evaluator(mock_llm_client.get_llm())
+        result = node(_make_state(target_option=target))
+
+    assert result.get("option_evaluation_report") is not None
+    assert "Neutral" in result["option_evaluation_report"]
+    assert "Theta decay" in result["option_evaluation_report"]
