@@ -5,13 +5,43 @@ import pandas as pd
 from unittest.mock import MagicMock, patch
 
 from tradingagents.agents.utils.memory import TradingMemoryLog
-from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
+from tradingagents.agents.schemas import (
+    PortfolioDecision, PortfolioRating,
+    TimeHorizonRecommendation, OptionsRecommendation, TraderAction,
+)
 from tradingagents.graph.reflection import Reflector
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.graph.propagation import Propagator
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 
 _SEP = TradingMemoryLog._SEPARATOR
+
+
+def _make_horizon(action=TraderAction.HOLD):
+    return TimeHorizonRecommendation(
+        action=action, rationale="No strong signal.", price_target=None, key_catalysts="none"
+    )
+
+
+def _make_options_rec():
+    return OptionsRecommendation(
+        strategy="Hold", rationale="IV neutral.", suggested_expiry="N/A",
+        strike_guidance="N/A", risk_reward="N/A",
+    )
+
+
+def _make_portfolio_decision(**kwargs):
+    defaults = dict(
+        rating=PortfolioRating.HOLD,
+        executive_summary="Hold the position; await catalyst.",
+        investment_thesis="Balanced view; neither side carried the debate.",
+        short_term=_make_horizon(),
+        medium_term=_make_horizon(),
+        long_term=_make_horizon(),
+        options_analysis=_make_options_rec(),
+    )
+    defaults.update(kwargs)
+    return PortfolioDecision(**defaults)
 
 DECISION_BUY = "Rating: Buy\nEnter at $189-192, 6% portfolio cap."
 DECISION_OVERWEIGHT = (
@@ -88,11 +118,7 @@ def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None
     prompt and returns a real PortfolioDecision (so render_pm_decision works).
     """
     if decision is None:
-        decision = PortfolioDecision(
-            rating=PortfolioRating.HOLD,
-            executive_summary="Hold the position; await catalyst.",
-            investment_thesis="Balanced view; neither side carried the debate.",
-        )
+        decision = _make_portfolio_decision()
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
         captured.__setitem__("prompt", prompt) or decision
@@ -612,12 +638,11 @@ class TestPortfolioManagerInjection:
         downstream consumers (memory log, signal processor, CLI display)
         can parse without any extra LLM call."""
         captured = {}
-        decision = PortfolioDecision(
+        decision = _make_portfolio_decision(
             rating=PortfolioRating.OVERWEIGHT,
             executive_summary="Build position gradually over the next two weeks.",
             investment_thesis="AI capex cycle remains intact; institutional flows constructive.",
             price_target=215.0,
-            time_horizon="3-6 months",
         )
         llm = _structured_pm_llm(captured, decision)
         pm_node = create_portfolio_manager(llm)
@@ -627,7 +652,6 @@ class TestPortfolioManagerInjection:
         assert "**Executive Summary**: Build position gradually" in md
         assert "**Investment Thesis**: AI capex cycle" in md
         assert "**Price Target**: 215.0" in md
-        assert "**Time Horizon**: 3-6 months" in md
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
         """If a provider does not support with_structured_output, the agent
