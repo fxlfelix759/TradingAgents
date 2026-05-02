@@ -176,17 +176,25 @@ def select_model(provider: str, base_url: str | None = None) -> str:
     from tradingagents.llm_clients.model_fetcher import fetch_models, ModelFetchError
 
     if provider == "azure":
-        return questionary.text(
+        name = questionary.text(
             "Enter Azure deployment name:",
             validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
-        ).ask().strip()
+        ).ask()
+        if name is None:
+            console.print("\n[red]No deployment name provided. Exiting...[/red]")
+            exit(1)
+        return name.strip()
 
+    fetch_error: ModelFetchError | None = None
     with console.status(f"[bold green]Fetching models from {provider}…[/bold green]"):
         try:
             models = fetch_models(provider, base_url)
         except ModelFetchError as exc:
-            console.print(f"\n[red]✗ Failed to fetch models from {provider}: {exc}[/red]")
-            exit(1)
+            fetch_error = exc
+
+    if fetch_error is not None:
+        console.print(f"\n[red]✗ Failed to fetch models from {provider}: {fetch_error}[/red]")
+        exit(1)
 
     if not models:
         console.print(f"[red]No models returned from {provider}.[/red]")
