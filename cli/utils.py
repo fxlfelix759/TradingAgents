@@ -134,98 +134,24 @@ def select_research_depth() -> int:
     return choice
 
 
-def _fetch_openrouter_models() -> List[Tuple[str, str]]:
-    """Fetch available models from the OpenRouter API."""
-    import requests
-    try:
-        resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
-        resp.raise_for_status()
-        models = resp.json().get("data", [])
-        return [(m.get("name") or m["id"], m["id"]) for m in models]
-    except Exception as e:
-        console.print(f"\n[yellow]Could not fetch OpenRouter models: {e}[/yellow]")
-        return []
-
-
-def select_openrouter_model() -> str:
-    """Select an OpenRouter model from the newest available, or enter a custom ID."""
-    models = _fetch_openrouter_models()
-
-    choices = [questionary.Choice(name, value=mid) for name, mid in models[:5]]
-    choices.append(questionary.Choice("Custom model ID", value="custom"))
-
-    choice = questionary.select(
-        "Select OpenRouter Model (latest available):",
-        choices=choices,
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style([
-            ("selected", "fg:magenta noinherit"),
-            ("highlighted", "fg:magenta noinherit"),
-            ("pointer", "fg:magenta noinherit"),
-        ]),
-    ).ask()
-
-    if choice is None or choice == "custom":
-        return questionary.text(
-            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-        ).ask().strip()
-
-    return choice
-
-
-def _prompt_custom_model_id() -> str:
-    """Prompt user to type a custom model ID."""
-    return questionary.text(
-        "Enter model ID:",
-        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-    ).ask().strip()
-
-
-def _select_model(provider: str, mode: str) -> str:
-    """Select a model for the given provider and mode (quick/deep)."""
-    if provider.lower() == "openrouter":
-        return select_openrouter_model()
-
-    if provider.lower() == "azure":
-        return questionary.text(
-            f"Enter Azure deployment name ({mode}-thinking):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
-        ).ask().strip()
-
-    return _prompt_custom_model_id()
-
-
-def select_shallow_thinking_agent(provider) -> str:
-    """Select shallow thinking llm engine using an interactive selection."""
-    return _select_model(provider, "quick")
-
-
-def select_deep_thinking_agent(provider) -> str:
-    """Select deep thinking llm engine using an interactive selection."""
-    return _select_model(provider, "deep")
-
 def select_llm_provider() -> tuple[str, str | None]:
-    """Select the LLM provider and its API endpoint."""
-    # (display_name, provider_key, base_url)
-    PROVIDERS = [
-        ("OpenAI", "openai", "https://api.openai.com/v1"),
-        ("Google", "google", None),
-        ("Anthropic", "anthropic", "https://api.anthropic.com/"),
-        ("xAI", "xai", "https://api.x.ai/v1"),
-        ("DeepSeek", "deepseek", "https://api.deepseek.com"),
-        ("Qwen", "qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
-        ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
-        ("Azure OpenAI", "azure", None),
-        ("Ollama", "ollama", "http://localhost:11434/v1"),
-    ]
+    """Select the LLM provider. Only shows providers with API keys set in env."""
+    from tradingagents.llm_clients.model_fetcher import available_providers
+
+    providers = available_providers()
+
+    if not providers:
+        console.print(
+            "[red]No LLM provider API keys found in environment. "
+            "Set at least one API key in .env and restart.[/red]"
+        )
+        exit(1)
 
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
             questionary.Choice(display, value=(provider_key, url))
-            for display, provider_key, url in PROVIDERS
+            for display, provider_key, url in providers
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -236,13 +162,54 @@ def select_llm_provider() -> tuple[str, str | None]:
             ]
         ),
     ).ask()
-    
+
     if choice is None:
         console.print("\n[red]No LLM provider selected. Exiting...[/red]")
         exit(1)
 
     provider, url = choice
     return provider, url
+
+
+def select_model(provider: str, base_url: str | None = None) -> str:
+    """Fetch available models from provider and prompt user to select one."""
+    from tradingagents.llm_clients.model_fetcher import fetch_models, ModelFetchError
+
+    if provider == "azure":
+        return questionary.text(
+            "Enter Azure deployment name:",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
+        ).ask().strip()
+
+    with console.status(f"[bold green]Fetching models from {provider}…[/bold green]"):
+        try:
+            models = fetch_models(provider, base_url)
+        except ModelFetchError as exc:
+            console.print(f"\n[red]✗ Failed to fetch models from {provider}: {exc}[/red]")
+            exit(1)
+
+    if not models:
+        console.print(f"[red]No models returned from {provider}.[/red]")
+        exit(1)
+
+    choice = questionary.select(
+        f"Select model ({provider}):",
+        choices=[questionary.Choice(m, value=m) for m in models],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if choice is None:
+        console.print("\n[red]No model selected. Exiting...[/red]")
+        exit(1)
+
+    return choice
 
 
 def ask_openai_reasoning_effort() -> str:
