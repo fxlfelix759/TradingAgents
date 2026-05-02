@@ -3,7 +3,6 @@ from typing import Any, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from .base_client import BaseLLMClient, normalize_content
-from .validators import validate_model
 
 
 class NormalizedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
@@ -25,7 +24,6 @@ class GoogleClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured ChatGoogleGenerativeAI instance."""
-        self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
         if self.base_url:
@@ -57,7 +55,3 @@ class GoogleClient(BaseLLMClient):
                 llm_kwargs["thinking_budget"] = -1 if thinking_level == "high" else 0
 
         return NormalizedChatGoogleGenerativeAI(**llm_kwargs)
-
-    def validate_model(self) -> bool:
-        """Validate model for Google."""
-        return validate_model("google", self.model)

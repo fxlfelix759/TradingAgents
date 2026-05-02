@@ -4,7 +4,6 @@ from typing import Any, Optional
 from langchain_openai import ChatOpenAI
 
 from .base_client import BaseLLMClient, normalize_content
-from .validators import validate_model
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
@@ -72,7 +71,6 @@ class OpenAIClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured ChatOpenAI instance."""
-        self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
         # Provider-specific base URL and auth
@@ -99,7 +97,3 @@ class OpenAIClient(BaseLLMClient):
             llm_kwargs["use_responses_api"] = True
 
         return NormalizedChatOpenAI(**llm_kwargs)
-
-    def validate_model(self) -> bool:
-        """Validate model for the provider."""
-        return validate_model(self.provider, self.model)
