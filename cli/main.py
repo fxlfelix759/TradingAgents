@@ -587,14 +587,13 @@ def get_user_selections():
     )
     selected_llm_provider, backend_url = select_llm_provider()
 
-    # Step 8: Thinking agents
+    # Step 8: Model selection
     console.print(
         create_question_box(
-            "Step 8: Thinking Agents", "Select your thinking agents for analysis"
+            "Step 8: Model", "Select the model for analysis"
         )
     )
-    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-    selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+    selected_model = select_model(selected_llm_provider, backend_url)
 
     # Step 9: Provider-specific thinking configuration
     thinking_level = None
@@ -634,8 +633,7 @@ def get_user_selections():
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
-        "shallow_thinker": selected_shallow_thinker,
-        "deep_thinker": selected_deep_thinker,
+        "model": selected_model,
         "google_thinking_level": thinking_level,
         "openai_reasoning_effort": reasoning_effort,
         "anthropic_effort": anthropic_effort,
@@ -975,8 +973,8 @@ def run_analysis(checkpoint: bool = False):
     config = DEFAULT_CONFIG.copy()
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
-    config["quick_think_llm"] = selections["shallow_thinker"]
-    config["deep_think_llm"] = selections["deep_thinker"]
+    config["quick_think_llm"] = selections["model"]
+    config["deep_think_llm"] = selections["model"]
     config["backend_url"] = selections["backend_url"]
     config["llm_provider"] = selections["llm_provider"].lower()
     # Provider-specific thinking configuration
