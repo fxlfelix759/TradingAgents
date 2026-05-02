@@ -119,18 +119,18 @@ def test_fetch_openai_filters_non_chat_models():
     assert "omni-moderation-latest" not in result
 
 
-def test_fetch_xai_returns_all_models_unsorted():
+def test_fetch_xai_returns_sorted_models():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "data": [{"id": "grok-4"}, {"id": "grok-4-mini"}]
+        "data": [{"id": "grok-z"}, {"id": "grok-a"}]
     }
     with patch.dict(os.environ, {"XAI_API_KEY": "xai-test"}):
         with patch(
             "tradingagents.llm_clients.model_fetcher.requests.get", return_value=mock_resp
         ):
             result = fetch_models("xai")
-    assert result == ["grok-4", "grok-4-mini"]
+    assert result == ["grok-a", "grok-z"]
 
 
 def test_fetch_openrouter_returns_all_models():
