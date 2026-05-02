@@ -25,7 +25,7 @@ _OPENAI_COMPAT = {"openai", "xai", "deepseek", "qwen", "glm", "openrouter"}
 
 _OPENAI_EXCLUDE = {
     "embedding", "whisper", "tts", "dall-e", "moderation",
-    "babbage", "davinci", "curie", "ada",
+    "babbage", "davinci", "curie", "ada", "image",
 }
 
 
