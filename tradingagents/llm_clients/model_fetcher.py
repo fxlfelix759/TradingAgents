@@ -62,11 +62,12 @@ def fetch_models(provider: str, base_url: Optional[str] = None) -> list[str]:
         if provider_lower == "ollama":
             return _fetch_ollama(effective_url or "http://localhost:11434")
         elif provider_lower == "anthropic":
-            return _fetch_anthropic(api_key)
+            return _fetch_anthropic(api_key, effective_url or "https://api.anthropic.com")
         elif provider_lower == "google":
             return _fetch_google(api_key)
         elif provider_lower in _OPENAI_COMPAT:
             return _fetch_openai_compat(provider_lower, effective_url or "", api_key)
+        # azure has no list-models API; model name is entered manually in the CLI
         else:
             raise ModelFetchError(f"Model fetching not supported for provider: {provider}")
     except ModelFetchError:
@@ -114,7 +115,7 @@ def _fetch_openai_compat(provider: str, base_url: str, api_key: Optional[str]) -
     return sorted(models)
 
 
-def _fetch_anthropic(api_key: Optional[str]) -> list[str]:
+def _fetch_anthropic(api_key: Optional[str], base_url: str = "https://api.anthropic.com") -> list[str]:
     headers = {
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
@@ -123,7 +124,7 @@ def _fetch_anthropic(api_key: Optional[str]) -> list[str]:
         headers["x-api-key"] = api_key
     try:
         resp = requests.get(
-            "https://api.anthropic.com/v1/models", headers=headers, timeout=10
+            f"{base_url.rstrip('/')}/v1/models", headers=headers, timeout=10
         )
     except requests.ConnectionError as exc:
         raise ModelFetchError(f"Connection error for anthropic: {exc}")
