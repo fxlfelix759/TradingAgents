@@ -97,8 +97,13 @@ def create_option_position_reviewer(llm: Any):
 
 The user ALREADY OWNS this option position. Review it given the current market conditions above.
 
+**IMPORTANT — Data freshness:** The chain data above includes a `lastTradeDate` column.
+- If `lastTradeDate` for the target strike is today or very recent: use the `bid`/`ask` midpoint as the current mark.
+- If `lastTradeDate` is stale (more than 1 trading day old): the bid/ask may not reflect the current market. Use `lastPrice` combined with the current stock price and IV to estimate fair value, and flag the staleness explicitly in your P&L Summary.
+- Never report a mark that is inconsistent with the current underlying price shown at the top of the chain data.
+
 1. **Recommendation**: Hold / Close Now / Roll / Partial Close / Hedge
-2. **P&L Summary**: Estimate current value from chain data vs. cost basis in $ and %
+2. **P&L Summary**: Current mark vs. cost basis in $ and % — note if chain data appears stale
 3. **Thesis Status**: Is the original directional thesis still intact? Has IV changed significantly?
 4. **Time Risk**: DTE remaining, daily theta burn ($), breakeven at expiry, upcoming event risk
 5. **Roll Suggestion**: If rolling, specify target strike/expiry and estimated roll cost (or null)
