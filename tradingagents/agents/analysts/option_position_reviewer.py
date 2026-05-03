@@ -22,7 +22,7 @@ def create_option_position_reviewer(llm: Any):
 
     def option_position_reviewer_node(state: Dict[str, Any]) -> Dict[str, Any]:
         position = state.get("existing_option_position")
-        if not position:
+        if position is None:
             return {}
 
         instrument_context = build_instrument_context(position.ticker)

@@ -23,7 +23,7 @@ def create_stock_position_reviewer(llm: Any):
 
     def stock_position_reviewer_node(state: Dict[str, Any]) -> Dict[str, Any]:
         position = state.get("existing_stock_position")
-        if not position:
+        if position is None:
             return {}
 
         ticker = state.get("company_of_interest", "")

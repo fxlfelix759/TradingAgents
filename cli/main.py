@@ -753,7 +753,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
         (position_dir / "option_position_review.md").write_text(
             final_state["option_position_review"], encoding="utf-8"
         )
-        sections.append(f"## VI. Option Position Review\n\n{final_state['option_position_review']}")
+        sections.append(f"## VII. Option Position Review\n\n{final_state['option_position_review']}")
 
     # Write consolidated report
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
