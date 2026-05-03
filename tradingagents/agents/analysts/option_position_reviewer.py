@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+import yfinance as yf
 
 from tradingagents.agents.schemas import OptionPositionReviewReport, render_option_position_review
 from tradingagents.agents.utils.agent_utils import build_instrument_context
@@ -11,6 +14,42 @@ from tradingagents.agents.utils.structured import bind_structured, invoke_struct
 from tradingagents.dataflows.interface import get_full_options_chain_for_target
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_leg_price(ticker: str, expiry: str, strike: float, option_type: str) -> Optional[Dict]:
+    """Fetch current bid/ask/lastPrice/lastTradeDate for a specific contract.
+
+    Returns a dict with keys: bid, ask, mid, last, last_trade_date, iv
+    or None if not found.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker.upper())
+        chain = ticker_obj.option_chain(expiry)
+        df = chain.calls if option_type == "call" else chain.puts
+        row = df[df["strike"] == float(strike)]
+        if row.empty:
+            return None
+        r = row.iloc[0]
+        bid = float(r.get("bid", 0) or 0)
+        ask = float(r.get("ask", 0) or 0)
+        last = float(r.get("lastPrice", 0) or 0)
+        iv = float(r.get("impliedVolatility", 0) or 0)
+        trade_date = r.get("lastTradeDate", None)
+        if hasattr(trade_date, "date"):
+            trade_date_str = str(trade_date.date())
+        elif trade_date is not None:
+            trade_date_str = str(trade_date)[:10]
+        else:
+            trade_date_str = "unknown"
+        mid = round((bid + ask) / 2, 2) if bid > 0 and ask > 0 else last
+        return {
+            "bid": bid, "ask": ask, "mid": mid, "last": last,
+            "last_trade_date": trade_date_str, "iv": round(iv * 100, 1),
+        }
+    except Exception as exc:
+        logger.warning("Could not fetch leg price for %s %s %s %s: %s",
+                       ticker, expiry, strike, option_type, exc)
+        return None
 
 
 def create_option_position_reviewer(llm: Any):
@@ -27,6 +66,36 @@ def create_option_position_reviewer(llm: Any):
 
         instrument_context = build_instrument_context(position.ticker)
 
+        # Fetch current stock price
+        try:
+            ticker_obj = yf.Ticker(position.ticker.upper())
+            current_price = ticker_obj.fast_info.last_price
+        except Exception:
+            current_price = None
+
+        # Fetch each leg's current market price directly — do NOT rely on LLM
+        # to find the correct row in a large chain table.
+        today_str = datetime.today().strftime("%Y-%m-%d")
+        leg_price_lines = []
+        for i, leg in enumerate(position.legs):
+            data = _fetch_leg_price(position.ticker, leg.expiration, leg.strike, leg.option_type)
+            if data:
+                freshness = "(fresh)" if data["last_trade_date"] >= today_str[:8] else f"(last traded {data['last_trade_date']} — may be stale)"
+                leg_price_lines.append(
+                    f"  Leg {i+1} ({leg.action.upper()} {leg.option_type.upper()} "
+                    f"${leg.strike} exp {leg.expiration}): "
+                    f"bid={data['bid']} ask={data['ask']} mid={data['mid']} "
+                    f"last={data['last']} IV={data['iv']}% {freshness}"
+                )
+            else:
+                leg_price_lines.append(
+                    f"  Leg {i+1} ({leg.action.upper()} {leg.option_type.upper()} "
+                    f"${leg.strike} exp {leg.expiration}): price data unavailable — estimate from chain below"
+                )
+
+        current_prices_block = "\n".join(leg_price_lines)
+
+        # Full chain for Greeks / context (LLM uses this for theta, IV skew, roll targets)
         expiries = sorted({leg.expiration for leg in position.legs})
         chain_sections = []
         for expiry in expiries:
@@ -50,6 +119,8 @@ def create_option_position_reviewer(llm: Any):
             f"Total cost basis: ${abs(position.net_premium) * position.contracts:.2f}"
         )
 
+        stock_price_str = f"${current_price:.2f}" if current_price is not None else "unavailable"
+
         prompt = f"""You are an expert options strategist reviewing an existing option position.
 
 {instrument_context}
@@ -59,6 +130,18 @@ def create_option_position_reviewer(llm: Any):
 ## Existing Option Position
 
 {position_block}
+
+---
+
+## Current Market Prices — USE THESE FOR P&L (authoritative, pre-extracted)
+
+Underlying ({position.ticker}): {stock_price_str}
+
+{current_prices_block}
+
+Use the `mid` price as the current mark for each leg. If a leg shows "may be stale",
+use the `last` price and note the uncertainty. Do NOT look up these prices in the chain
+table below — these values are already extracted for you.
 
 ---
 
@@ -87,7 +170,7 @@ def create_option_position_reviewer(llm: Any):
 
 ---
 
-## Full Options Chain Data (with Greeks)
+## Full Options Chain (use for Greeks, IV skew, and roll target identification only)
 
 {full_chain}
 
@@ -95,15 +178,10 @@ def create_option_position_reviewer(llm: Any):
 
 ## Your Task
 
-The user ALREADY OWNS this option position. Review it given the current market conditions above.
-
-**IMPORTANT — Data freshness:** The chain data above includes a `lastTradeDate` column.
-- If `lastTradeDate` for the target strike is today or very recent: use the `bid`/`ask` midpoint as the current mark.
-- If `lastTradeDate` is stale (more than 1 trading day old): the bid/ask may not reflect the current market. Use `lastPrice` combined with the current stock price and IV to estimate fair value, and flag the staleness explicitly in your P&L Summary.
-- Never report a mark that is inconsistent with the current underlying price shown at the top of the chain data.
+The user ALREADY OWNS this option position. Review it given the current market conditions.
 
 1. **Recommendation**: Hold / Close Now / Roll / Partial Close / Hedge
-2. **P&L Summary**: Current mark vs. cost basis in $ and % — note if chain data appears stale
+2. **P&L Summary**: Use the pre-extracted mid prices above to compute current value vs. cost basis in $ and %
 3. **Thesis Status**: Is the original directional thesis still intact? Has IV changed significantly?
 4. **Time Risk**: DTE remaining, daily theta burn ($), breakeven at expiry, upcoming event risk
 5. **Roll Suggestion**: If rolling, specify target strike/expiry and estimated roll cost (or null)

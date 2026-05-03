@@ -566,12 +566,9 @@ def get_full_options_chain_for_target(
     Returns all strikes (not top-5) for target_expiry, 1 prior expiry if available,
     and up to num_neighbors expiries after target. Greeks are computed via Black-Scholes.
     The target expiry section is labelled '(TARGET EXPIRY)' for easy LLM identification.
-    Uses a fresh requests session to bypass any in-process yfinance cache.
     """
     try:
-        import requests as _requests
-        _session = _requests.Session()
-        ticker_obj = yf.Ticker(ticker.upper(), session=_session)
+        ticker_obj = yf.Ticker(ticker.upper())
         expirations = yf_retry(lambda: ticker_obj.options)
 
         if not expirations:
