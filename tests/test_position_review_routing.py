@@ -58,3 +58,29 @@ def test_routes_to_end_when_all_none():
         "existing_option_position": None,
     }
     assert _cl().route_post_pipeline(state) == END
+
+
+def test_graph_compiles_with_position_reviewer_nodes():
+    """Graph setup compiles without error when position reviewer nodes are wired."""
+    from unittest.mock import MagicMock
+    from tradingagents.graph.setup import GraphSetup
+    from tradingagents.graph.conditional_logic import ConditionalLogic
+    from langchain_core.tools import tool
+    from langgraph.prebuilt import ToolNode
+
+    quick_llm = MagicMock()
+    quick_llm.with_structured_output.return_value = MagicMock()
+    deep_llm = MagicMock()
+    deep_llm.with_structured_output.return_value = MagicMock()
+
+    @tool
+    def dummy_tool(query: str) -> str:
+        """dummy"""
+        return query
+
+    tool_nodes = {k: ToolNode([dummy_tool]) for k in ["market", "social", "news", "fundamentals"]}
+    cl = ConditionalLogic()
+    gs = GraphSetup(quick_llm, deep_llm, tool_nodes, cl)
+    workflow = gs.setup_graph(["market"])
+    graph = workflow.compile()
+    assert graph is not None
