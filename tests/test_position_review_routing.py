@@ -60,6 +60,16 @@ def test_routes_to_end_when_all_none():
     assert _cl().route_post_pipeline(state) == END
 
 
+def test_propagate_signature_accepts_position_args():
+    """propagate() accepts the new position keyword arguments without TypeError."""
+    import inspect
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
+    sig = inspect.signature(TradingAgentsGraph.propagate)
+    params = sig.parameters
+    assert "existing_stock_position" in params
+    assert "existing_option_position" in params
+
+
 def test_graph_compiles_with_position_reviewer_nodes():
     """Graph setup compiles without error when position reviewer nodes are wired."""
     from unittest.mock import MagicMock
