@@ -4,7 +4,12 @@ from typing import List, Optional, Tuple, Dict
 from rich.console import Console
 
 from cli.models import AnalystType
-from tradingagents.agents.schemas import OptionLeg, TargetOption
+from tradingagents.agents.schemas import (
+    OptionLeg,
+    TargetOption,
+    ExistingStockPosition,
+    ExistingOptionPosition,
+)
 
 console = Console()
 
@@ -452,3 +457,94 @@ def ask_option_strategy(ticker: str) -> Optional[TargetOption]:
         legs=legs,
         user_notes=user_notes.strip() if user_notes and user_notes.strip() else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Existing position / mode selection
+# ---------------------------------------------------------------------------
+
+_MODE_NEW_OPTION = "Evaluate a new option strategy"
+_MODE_STOCK = "Review an existing stock position"
+_MODE_OPTION = "Review an existing option position"
+_MODE_SKIP = "Skip"
+
+
+def ask_existing_position(ticker: str) -> dict:
+    """Step 3 prompt: 4-way branch for analysis mode.
+
+    Returns a dict with exactly one non-None value among:
+        target_option, existing_stock_position, existing_option_position
+    All three are None when the user skips.
+    """
+    result = {
+        "target_option": None,
+        "existing_stock_position": None,
+        "existing_option_position": None,
+    }
+
+    mode = questionary.select(
+        "What would you like to do?",
+        choices=[_MODE_NEW_OPTION, _MODE_STOCK, _MODE_OPTION, _MODE_SKIP],
+        style=_OPTION_STYLE,
+    ).ask()
+
+    if mode is None or mode == _MODE_SKIP:
+        return result
+
+    if mode == _MODE_NEW_OPTION:
+        result["target_option"] = ask_option_strategy(ticker)
+        return result
+
+    if mode == _MODE_STOCK:
+        entry_price_str = questionary.text(
+            "Entry price per share ($):",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric price.",
+        ).ask()
+        if entry_price_str is None:
+            return result
+
+        shares_str = questionary.text(
+            "Number of shares held:",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric quantity.",
+        ).ask()
+        if shares_str is None:
+            return result
+
+        result["existing_stock_position"] = ExistingStockPosition(
+            entry_price=float(entry_price_str),
+            shares=float(shares_str),
+        )
+        return result
+
+    if mode == _MODE_OPTION:
+        console.print("\n[cyan]Enter the details of your existing option position.[/cyan]")
+        target = ask_option_strategy(ticker)
+        if target is None:
+            return result
+
+        net_premium_str = questionary.text(
+            "Net premium paid/received per contract ($, positive = debit, negative = credit):",
+            validate=lambda x: (
+                x.lstrip("-").replace(".", "", 1).isdigit()
+            ) or "Enter a numeric premium (e.g. 8.50 or -1.20).",
+        ).ask()
+        if net_premium_str is None:
+            return result
+
+        contracts_str = questionary.text(
+            "Number of contracts held:",
+            validate=lambda x: x.isdigit() or "Enter a whole number.",
+        ).ask()
+        if contracts_str is None:
+            return result
+
+        result["existing_option_position"] = ExistingOptionPosition(
+            ticker=target.ticker,
+            strategy=target.strategy,
+            legs=target.legs,
+            net_premium=float(net_premium_str),
+            contracts=int(contracts_str),
+        )
+        return result
+
+    return result
