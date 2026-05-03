@@ -539,17 +539,21 @@ def get_user_selections():
     if _cache_exists:
         console.print(
             f"\n[green]Found existing report for {selected_ticker} on {analysis_date}. "
-            "Cached analysis will be used for option evaluation.[/green]\n"
+            "Cached analysis will be used if you request a position review or option evaluation.[/green]\n"
         )
 
-    # Step 3: Option Strategy (optional)
+    # Step 3: Analysis mode
     console.print(
         create_question_box(
-            "Step 3: Option Strategy (Optional)",
-            "Optionally evaluate a specific option strategy against this analysis",
+            "Step 3: Analysis Mode",
+            "Evaluate a new option strategy, review an existing position, or skip",
         )
     )
-    target_option = ask_option_strategy(selected_ticker)
+    from cli.utils import ask_existing_position
+    step3 = ask_existing_position(selected_ticker)
+    target_option = step3["target_option"]
+    existing_stock_position = step3["existing_stock_position"]
+    existing_option_position = step3["existing_option_position"]
 
     # Step 4: Output language
     console.print(
@@ -639,6 +643,8 @@ def get_user_selections():
         "anthropic_effort": anthropic_effort,
         "output_language": output_language,
         "target_option": target_option,
+        "existing_stock_position": existing_stock_position,
+        "existing_option_position": existing_option_position,
         "cache_exists": _cache_exists,
     }
 
@@ -732,6 +738,23 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
+    # 6. Position Review
+    if final_state.get("stock_position_review"):
+        position_dir = save_path / "6_position_review"
+        position_dir.mkdir(exist_ok=True)
+        (position_dir / "stock_position_review.md").write_text(
+            final_state["stock_position_review"], encoding="utf-8"
+        )
+        sections.append(f"## VI. Stock Position Review\n\n{final_state['stock_position_review']}")
+
+    if final_state.get("option_position_review"):
+        position_dir = save_path / "6_position_review"
+        position_dir.mkdir(exist_ok=True)
+        (position_dir / "option_position_review.md").write_text(
+            final_state["option_position_review"], encoding="utf-8"
+        )
+        sections.append(f"## VI. Option Position Review\n\n{final_state['option_position_review']}")
+
     # Write consolidated report
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
@@ -801,6 +824,14 @@ def display_complete_report(final_state):
     if final_state.get("option_evaluation_report"):
         console.print(Rule("Option Trade Evaluation", style="bold cyan"))
         console.print(Markdown(final_state["option_evaluation_report"]))
+
+    if final_state.get("stock_position_review"):
+        console.print(Rule("Stock Position Review", style="bold green"))
+        console.print(Markdown(final_state["stock_position_review"]))
+
+    if final_state.get("option_position_review"):
+        console.print(Rule("Option Position Review", style="bold cyan"))
+        console.print(Markdown(final_state["option_position_review"]))
 
 
 def update_research_team_status(status):
@@ -1060,23 +1091,46 @@ def run_analysis(checkpoint: bool = False):
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
 
         target_option = selections.get("target_option")
+        existing_stock_position = selections.get("existing_stock_position")
+        existing_option_position = selections.get("existing_option_position")
         cache_exists = selections.get("cache_exists", False)
 
-        if target_option and cache_exists:
-            # Cache hit: run only the evaluator directly
-            _, option_report = graph.propagate(
-                selections["ticker"], selections["analysis_date"], target_option=target_option
-            )
-            if option_report:
-                console.print(Rule("Option Trade Evaluation", style="bold cyan"))
-                console.print(Markdown(option_report))
-            return
+        if cache_exists:
+            if target_option:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    target_option=target_option,
+                )
+                if report:
+                    console.print(Rule("Option Trade Evaluation", style="bold cyan"))
+                    console.print(Markdown(report))
+                return
+            if existing_stock_position:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    existing_stock_position=existing_stock_position,
+                )
+                if report:
+                    console.print(Rule("Stock Position Review", style="bold green"))
+                    console.print(Markdown(report))
+                return
+            if existing_option_position:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    existing_option_position=existing_option_position,
+                )
+                if report:
+                    console.print(Rule("Option Position Review", style="bold cyan"))
+                    console.print(Markdown(report))
+                return
 
         # Normal path: stream full graph with optional evaluator at the end
         # Initialize state and get graph args with callbacks
         init_agent_state = graph.propagator.create_initial_state(
             selections["ticker"], selections["analysis_date"],
             target_option=target_option,
+            existing_stock_position=existing_stock_position,
+            existing_option_position=existing_option_position,
         )
         # Pass callbacks to graph config for tool execution tracking
         # (LLM tracking is handled separately via LLM constructor)
