@@ -131,3 +131,19 @@ def test_agent_state_has_position_fields():
     assert "existing_option_position" in hints
     assert "stock_position_review" in hints
     assert "option_position_review" in hints
+
+
+def test_propagator_initial_state_has_position_fields():
+    from tradingagents.graph.propagation import Propagator
+    from tradingagents.agents.schemas import ExistingStockPosition
+
+    p = Propagator()
+    pos = ExistingStockPosition(entry_price=500.0, shares=10.0)
+    state = p.create_initial_state(
+        "MSFT", "2026-05-03",
+        existing_stock_position=pos,
+    )
+    assert state["existing_stock_position"] is pos
+    assert state["existing_option_position"] is None
+    assert state["stock_position_review"] is None
+    assert state["option_position_review"] is None
