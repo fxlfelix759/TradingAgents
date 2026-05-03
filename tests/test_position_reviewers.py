@@ -151,3 +151,12 @@ def test_option_reviewer_with_roll_recommendation(mock_llm_client):
 
     assert "Roll Suggestion" in result["option_position_review"]
     assert "2026-07-18" in result["option_position_review"]
+
+
+def test_position_reviewer_factories_importable_from_agents():
+    from tradingagents.agents import (
+        create_stock_position_reviewer,
+        create_option_position_reviewer,
+    )
+    assert callable(create_stock_position_reviewer)
+    assert callable(create_option_position_reviewer)
