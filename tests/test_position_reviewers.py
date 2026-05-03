@@ -67,6 +67,7 @@ def test_stock_reviewer_calls_llm_when_position_set(mock_llm_client):
         node = create_stock_position_reviewer(mock_llm_client.get_llm())
         result = node(state)
 
+    mock_ticker_cls.assert_called_once_with("MSFT")
     assert "stock_position_review" in result
     assert "## Stock Position Review: Hold" in result["stock_position_review"]
     assert "-$800" in result["stock_position_review"]

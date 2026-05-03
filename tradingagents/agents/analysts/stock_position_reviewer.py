@@ -35,8 +35,8 @@ def create_stock_position_reviewer(llm: Any):
         except Exception:
             current_price = None
 
-        price_str = f"${current_price:.2f}" if current_price else "unavailable"
-        if current_price:
+        price_str = f"${current_price:.2f}" if current_price is not None else "unavailable"
+        if current_price is not None:
             pnl_abs = (current_price - position.entry_price) * position.shares
             pnl_pct = (current_price - position.entry_price) / position.entry_price * 100
             pnl_context = f"Unrealized P&L: ${pnl_abs:+.2f} ({pnl_pct:+.1f}%)"
