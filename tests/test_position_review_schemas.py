@@ -121,3 +121,13 @@ def test_render_option_position_review_empty_string_roll_included():
     )
     rendered = render_option_position_review(report)
     assert "Roll Suggestion" in rendered
+
+
+def test_agent_state_has_position_fields():
+    """AgentState TypedDict accepts new position fields without error."""
+    from tradingagents.agents.utils.agent_states import AgentState
+    hints = AgentState.__annotations__
+    assert "existing_stock_position" in hints
+    assert "existing_option_position" in hints
+    assert "stock_position_review" in hints
+    assert "option_position_review" in hints
