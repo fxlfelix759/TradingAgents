@@ -649,7 +649,7 @@ def render_option_position_review(report: OptionPositionReviewReport) -> str:
         "### Time Risk",
         report.time_risk,
     ]
-    if report.roll_suggestion:
+    if report.roll_suggestion is not None:
         parts += ["", "### Roll Suggestion", report.roll_suggestion]
     parts += ["", "### Exit Triggers", report.exit_triggers]
     return "\n".join(parts)

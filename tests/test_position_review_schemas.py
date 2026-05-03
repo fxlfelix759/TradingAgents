@@ -107,3 +107,17 @@ def test_render_option_position_review_with_roll():
     rendered = render_option_position_review(report)
     assert "Roll Suggestion" in rendered
     assert "2026-07-18" in rendered
+
+
+def test_render_option_position_review_empty_string_roll_included():
+    """Empty string roll_suggestion should still render the section (not None = include)."""
+    report = OptionPositionReviewReport(
+        recommendation="Roll",
+        pnl_summary="-$200 (-25%)",
+        thesis_status="Needs more time.",
+        time_risk="14 DTE, theta $22/day.",
+        roll_suggestion="",
+        exit_triggers="Close if stock breaks $410.",
+    )
+    rendered = render_option_position_review(report)
+    assert "Roll Suggestion" in rendered
