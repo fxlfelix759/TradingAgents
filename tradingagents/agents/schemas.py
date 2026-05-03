@@ -508,3 +508,148 @@ def render_option_evaluation(report: OptionEvaluationReport) -> str:
     ]
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Existing Position Review — input models and output schemas
+# ---------------------------------------------------------------------------
+
+
+class ExistingStockPosition(BaseModel):
+    """A stock position the user already holds."""
+
+    entry_price: float = Field(description="Cost basis per share in USD.")
+    shares: float = Field(description="Number of shares held.")
+
+
+class ExistingOptionPosition(BaseModel):
+    """An option position the user already holds."""
+
+    ticker: str = Field(description="Underlying ticker symbol.")
+    strategy: str = Field(
+        description="Strategy identifier, e.g. 'long_call', 'iron_condor'."
+    )
+    legs: List[OptionLeg] = Field(description="All legs of the strategy in order.")
+    net_premium: float = Field(
+        description=(
+            "Total net debit (positive) or net credit (negative) paid/received "
+            "for the whole strategy per contract set, in USD."
+        )
+    )
+    contracts: int = Field(description="Number of contract sets held.")
+
+
+class StockPositionReviewReport(BaseModel):
+    """Structured review of an existing stock position."""
+
+    recommendation: Literal["Hold", "Add", "Reduce", "Close"] = Field(
+        description=(
+            "'Hold' = keep current size; 'Add' = increase position; "
+            "'Reduce' = trim partial position; 'Close' = exit entirely."
+        )
+    )
+    pnl_summary: str = Field(
+        description="Current unrealized P&L in absolute $ and percentage terms."
+    )
+    thesis_status: str = Field(
+        description=(
+            "Whether the original bull/bear thesis behind the entry is still intact, "
+            "partially intact, or broken — with specific evidence from the reports."
+        )
+    )
+    action_plan: str = Field(
+        description=(
+            "Specific, actionable steps: price levels to act at, sizing guidance, "
+            "and timeline. Reference the current price and entry price."
+        )
+    )
+    exit_triggers: str = Field(
+        description=(
+            "Concrete conditions (price levels, events, time) that would change "
+            "this recommendation."
+        )
+    )
+
+
+class OptionPositionReviewReport(BaseModel):
+    """Structured review of an existing option position."""
+
+    recommendation: Literal["Hold", "Close Now", "Roll", "Partial Close", "Hedge"] = Field(
+        description=(
+            "'Hold' = keep as-is; 'Close Now' = exit immediately; "
+            "'Roll' = close and reopen in a later expiry/different strike; "
+            "'Partial Close' = close a subset of contracts; "
+            "'Hedge' = add a protective position."
+        )
+    )
+    pnl_summary: str = Field(
+        description=(
+            "Current estimated P&L vs. the net_premium paid/received, "
+            "in absolute $ and percentage terms."
+        )
+    )
+    thesis_status: str = Field(
+        description=(
+            "Whether the original directional thesis is still intact based on "
+            "current analyst reports. Note any changes in IV or macro context."
+        )
+    )
+    time_risk: str = Field(
+        description=(
+            "DTE remaining, estimated daily theta burn in $, distance to breakeven "
+            "at expiry, and any upcoming event risk (earnings, FOMC, etc.)."
+        )
+    )
+    roll_suggestion: Optional[str] = Field(
+        default=None,
+        description=(
+            "If recommendation is 'Roll', specify the target strike, expiry, and "
+            "estimated net cost/credit of the roll. None for all other recommendations."
+        ),
+    )
+    exit_triggers: str = Field(
+        description=(
+            "Concrete conditions (price levels, DTE threshold, P&L % limit) that "
+            "would change this recommendation."
+        )
+    )
+
+
+def render_stock_position_review(report: StockPositionReviewReport) -> str:
+    """Render a StockPositionReviewReport to markdown."""
+    parts = [
+        f"## Stock Position Review: {report.recommendation}",
+        "",
+        "### P&L Summary",
+        report.pnl_summary,
+        "",
+        "### Thesis Status",
+        report.thesis_status,
+        "",
+        "### Action Plan",
+        report.action_plan,
+        "",
+        "### Exit Triggers",
+        report.exit_triggers,
+    ]
+    return "\n".join(parts)
+
+
+def render_option_position_review(report: OptionPositionReviewReport) -> str:
+    """Render an OptionPositionReviewReport to markdown."""
+    parts = [
+        f"## Option Position Review: {report.recommendation}",
+        "",
+        "### P&L Summary",
+        report.pnl_summary,
+        "",
+        "### Thesis Status",
+        report.thesis_status,
+        "",
+        "### Time Risk",
+        report.time_risk,
+    ]
+    if report.roll_suggestion:
+        parts += ["", "### Roll Suggestion", report.roll_suggestion]
+    parts += ["", "### Exit Triggers", report.exit_triggers]
+    return "\n".join(parts)
