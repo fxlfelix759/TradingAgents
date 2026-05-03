@@ -527,19 +527,20 @@ def get_user_selections():
     )
     analysis_date = get_analysis_date()
 
-    # Cache check: notify user if a prior report exists for this ticker+date
+    # Cache check: valid only if created today AND market is closed
     from tradingagents.default_config import DEFAULT_CONFIG as _CFG
+    from tradingagents.graph.trading_graph import _is_analysis_cache_valid
     _cache_log_path = (
         Path(_CFG["results_dir"])
         / selected_ticker
         / "TradingAgentsStrategy_logs"
         / f"full_states_log_{analysis_date}.json"
     )
-    _cache_exists = _cache_log_path.exists()
+    _cache_exists = _is_analysis_cache_valid(_cache_log_path)
     if _cache_exists:
         console.print(
-            f"\n[green]Found existing report for {selected_ticker} on {analysis_date}. "
-            "Cached analysis will be used if you request a position review or option evaluation.[/green]\n"
+            f"\n[green]Found a valid cached report for {selected_ticker} on {analysis_date} "
+            "(generated today, market closed). Will be reused for position review / option evaluation.[/green]\n"
         )
 
     # Step 3: Analysis mode

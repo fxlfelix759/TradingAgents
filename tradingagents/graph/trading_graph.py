@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, List, Optional
+from zoneinfo import ZoneInfo
 
 import yfinance as yf
 
@@ -46,6 +47,37 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+
+
+def _is_analysis_cache_valid(cache_path: Path) -> bool:
+    """Return True only if the cache file was created TODAY and the NYSE market is closed.
+
+    Rules:
+    - File must exist.
+    - File modification time must be today (local calendar date).
+    - If today is a weekday AND current ET time is within NYSE regular session
+      (09:30–16:00 ET), the cache is stale because prices are live — return False.
+    - Otherwise (weekend, holiday, pre-market, after-hours) return True.
+    """
+    if not cache_path.exists():
+        return False
+
+    cache_mtime = datetime.fromtimestamp(cache_path.stat().st_mtime)
+    if cache_mtime.date() != datetime.today().date():
+        return False
+
+    try:
+        et_tz = ZoneInfo("America/New_York")
+        now_et = datetime.now(tz=et_tz)
+        if now_et.weekday() < 5:  # Monday–Friday
+            market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+            market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+            if market_open <= now_et <= market_close:
+                return False
+    except Exception:
+        pass
+
+    return True
 
 
 class TradingAgentsGraph:
@@ -385,7 +417,9 @@ class TradingAgentsGraph:
             / f"full_states_log_{trade_date}.json"
         )
 
-        if target_option is not None and cached_path.exists():
+        cache_valid = _is_analysis_cache_valid(cached_path)
+
+        if target_option is not None and cache_valid:
             logger.info(
                 "Cache hit for %s on %s — running option evaluator only.",
                 company_name, trade_date,
@@ -393,7 +427,7 @@ class TradingAgentsGraph:
             report = self._evaluate_option_only(company_name, trade_date, target_option, cached_path)
             return None, report
 
-        if existing_stock_position is not None and cached_path.exists():
+        if existing_stock_position is not None and cache_valid:
             logger.info(
                 "Cache hit for %s on %s — running stock position reviewer only.",
                 company_name, trade_date,
@@ -401,7 +435,7 @@ class TradingAgentsGraph:
             report = self._review_stock_position_only(company_name, trade_date, existing_stock_position, cached_path)
             return None, report
 
-        if existing_option_position is not None and cached_path.exists():
+        if existing_option_position is not None and cache_valid:
             logger.info(
                 "Cache hit for %s on %s — running option position reviewer only.",
                 company_name, trade_date,
