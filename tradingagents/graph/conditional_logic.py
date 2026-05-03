@@ -1,5 +1,6 @@
 # TradingAgents/graph/conditional_logic.py
 
+from langgraph.graph import END
 from tradingagents.agents.utils.agent_states import AgentState
 
 
@@ -73,3 +74,13 @@ class ConditionalLogic:
         if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
             return "Neutral Analyst"
         return "Aggressive Analyst"
+
+    def route_post_pipeline(self, state: AgentState) -> str:
+        """Route from Portfolio Manager to the appropriate post-pipeline node."""
+        if state.get("target_option") is not None:
+            return "Option Trade Evaluator"
+        if state.get("existing_stock_position") is not None:
+            return "Stock Position Reviewer"
+        if state.get("existing_option_position") is not None:
+            return "Option Position Reviewer"
+        return END
