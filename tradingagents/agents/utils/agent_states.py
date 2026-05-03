@@ -1,6 +1,11 @@
-from typing import Annotated
+from typing import Annotated, Optional
 from typing_extensions import TypedDict
 from langgraph.graph import MessagesState
+from tradingagents.agents.schemas import (
+    TargetOption,
+    ExistingStockPosition,
+    ExistingOptionPosition,
+)
 
 
 # Researcher team state
@@ -75,4 +80,28 @@ class AgentState(MessagesState):
     change_report: Annotated[
         str,
         "Diff report produced by the Change Analyst comparing this run with the most recent prior same-ticker report",
+    ]
+    target_option: Annotated[
+        Optional[TargetOption],
+        "User-specified option strategy to evaluate (None = skip evaluator)",
+    ]
+    option_evaluation_report: Annotated[
+        Optional[str],
+        "Markdown evaluation report produced by OptionTradeEvaluator",
+    ]
+    existing_stock_position: Annotated[
+        Optional[ExistingStockPosition],
+        "Existing stock position to review (None = skip reviewer)",
+    ]
+    existing_option_position: Annotated[
+        Optional[ExistingOptionPosition],
+        "Existing option position to review (None = skip reviewer)",
+    ]
+    stock_position_review: Annotated[
+        Optional[str],
+        "Markdown review report produced by StockPositionReviewer",
+    ]
+    option_position_review: Annotated[
+        Optional[str],
+        "Markdown review report produced by OptionPositionReviewer",
     ]

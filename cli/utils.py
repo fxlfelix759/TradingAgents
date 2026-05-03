@@ -4,7 +4,12 @@ from typing import List, Optional, Tuple, Dict
 from rich.console import Console
 
 from cli.models import AnalystType
-from tradingagents.llm_clients.model_catalog import get_model_options
+from tradingagents.agents.schemas import (
+    OptionLeg,
+    TargetOption,
+    ExistingStockPosition,
+    ExistingOptionPosition,
+)
 
 console = Console()
 
@@ -134,121 +139,24 @@ def select_research_depth() -> int:
     return choice
 
 
-def _fetch_openrouter_models() -> List[Tuple[str, str]]:
-    """Fetch available models from the OpenRouter API."""
-    import requests
-    try:
-        resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
-        resp.raise_for_status()
-        models = resp.json().get("data", [])
-        return [(m.get("name") or m["id"], m["id"]) for m in models]
-    except Exception as e:
-        console.print(f"\n[yellow]Could not fetch OpenRouter models: {e}[/yellow]")
-        return []
-
-
-def select_openrouter_model() -> str:
-    """Select an OpenRouter model from the newest available, or enter a custom ID."""
-    models = _fetch_openrouter_models()
-
-    choices = [questionary.Choice(name, value=mid) for name, mid in models[:5]]
-    choices.append(questionary.Choice("Custom model ID", value="custom"))
-
-    choice = questionary.select(
-        "Select OpenRouter Model (latest available):",
-        choices=choices,
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style([
-            ("selected", "fg:magenta noinherit"),
-            ("highlighted", "fg:magenta noinherit"),
-            ("pointer", "fg:magenta noinherit"),
-        ]),
-    ).ask()
-
-    if choice is None or choice == "custom":
-        return questionary.text(
-            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-        ).ask().strip()
-
-    return choice
-
-
-def _prompt_custom_model_id() -> str:
-    """Prompt user to type a custom model ID."""
-    return questionary.text(
-        "Enter model ID:",
-        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-    ).ask().strip()
-
-
-def _select_model(provider: str, mode: str) -> str:
-    """Select a model for the given provider and mode (quick/deep)."""
-    if provider.lower() == "openrouter":
-        return select_openrouter_model()
-
-    if provider.lower() == "azure":
-        return questionary.text(
-            f"Enter Azure deployment name ({mode}-thinking):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
-        ).ask().strip()
-
-    choice = questionary.select(
-        f"Select Your [{mode.title()}-Thinking LLM Engine]:",
-        choices=[
-            questionary.Choice(display, value=value)
-            for display, value in get_model_options(provider, mode)
-        ],
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style(
-            [
-                ("selected", "fg:magenta noinherit"),
-                ("highlighted", "fg:magenta noinherit"),
-                ("pointer", "fg:magenta noinherit"),
-            ]
-        ),
-    ).ask()
-
-    if choice is None:
-        console.print(f"\n[red]No {mode} thinking llm engine selected. Exiting...[/red]")
-        exit(1)
-
-    if choice == "custom":
-        return _prompt_custom_model_id()
-
-    return choice
-
-
-def select_shallow_thinking_agent(provider) -> str:
-    """Select shallow thinking llm engine using an interactive selection."""
-    return _select_model(provider, "quick")
-
-
-def select_deep_thinking_agent(provider) -> str:
-    """Select deep thinking llm engine using an interactive selection."""
-    return _select_model(provider, "deep")
-
 def select_llm_provider() -> tuple[str, str | None]:
-    """Select the LLM provider and its API endpoint."""
-    # (display_name, provider_key, base_url)
-    PROVIDERS = [
-        ("OpenAI", "openai", "https://api.openai.com/v1"),
-        ("Google", "google", None),
-        ("Anthropic", "anthropic", "https://api.anthropic.com/"),
-        ("xAI", "xai", "https://api.x.ai/v1"),
-        ("DeepSeek", "deepseek", "https://api.deepseek.com"),
-        ("Qwen", "qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
-        ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
-        ("Azure OpenAI", "azure", None),
-        ("Ollama", "ollama", "http://localhost:11434/v1"),
-    ]
+    """Select the LLM provider. Only shows providers with API keys set in env."""
+    from tradingagents.llm_clients.model_fetcher import available_providers
+
+    providers = available_providers()
+
+    if not providers:
+        console.print(
+            "[red]No LLM provider API keys found in environment. "
+            "Set at least one API key in .env and restart.[/red]"
+        )
+        exit(1)
 
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
             questionary.Choice(display, value=(provider_key, url))
-            for display, provider_key, url in PROVIDERS
+            for display, provider_key, url in providers
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -259,13 +167,62 @@ def select_llm_provider() -> tuple[str, str | None]:
             ]
         ),
     ).ask()
-    
+
     if choice is None:
         console.print("\n[red]No LLM provider selected. Exiting...[/red]")
         exit(1)
 
     provider, url = choice
     return provider, url
+
+
+def select_model(provider: str, base_url: str | None = None) -> str:
+    """Fetch available models from provider and prompt user to select one."""
+    from tradingagents.llm_clients.model_fetcher import fetch_models, ModelFetchError
+
+    if provider == "azure":
+        name = questionary.text(
+            "Enter Azure deployment name:",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
+        ).ask()
+        if name is None:
+            console.print("\n[red]No deployment name provided. Exiting...[/red]")
+            exit(1)
+        return name.strip()
+
+    fetch_error: ModelFetchError | None = None
+    with console.status(f"[bold green]Fetching models from {provider}…[/bold green]"):
+        try:
+            models = fetch_models(provider, base_url)
+        except ModelFetchError as exc:
+            fetch_error = exc
+
+    if fetch_error is not None:
+        console.print(f"\n[red]✗ Failed to fetch models from {provider}: {fetch_error}[/red]")
+        exit(1)
+
+    if not models:
+        console.print(f"[red]No models returned from {provider}.[/red]")
+        exit(1)
+
+    choice = questionary.select(
+        f"Select model ({provider}):",
+        choices=[questionary.Choice(m, value=m) for m in models],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if choice is None:
+        console.print("\n[red]No model selected. Exiting...[/red]")
+        exit(1)
+
+    return choice
 
 
 def ask_openai_reasoning_effort() -> str:
@@ -358,3 +315,236 @@ def ask_output_language() -> str:
         ).ask().strip()
 
     return choice
+
+
+# ---------------------------------------------------------------------------
+# Option strategy selection
+# ---------------------------------------------------------------------------
+
+STRATEGY_TAXONOMY = {
+    "Single Leg": [
+        ("Long Call", "long_call", [{"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call)"}]),
+        ("Long Put", "long_put", [{"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put)"}]),
+        ("Short Call", "short_call", [{"action": "sell", "option_type": "call", "label": "Leg 1 (Sell Call)"}]),
+        ("Short Put", "short_put", [{"action": "sell", "option_type": "put", "label": "Leg 1 (Sell Put)"}]),
+    ],
+    "Vertical Spread": [
+        ("Call Debit Spread", "call_debit_spread", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call — lower strike)"},
+            {"action": "sell", "option_type": "call", "label": "Leg 2 (Sell Call — higher strike)"},
+        ]),
+        ("Call Credit Spread", "call_credit_spread", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell Call — lower strike)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 2 (Buy Call — higher strike)"},
+        ]),
+        ("Put Debit Spread", "put_debit_spread", [
+            {"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put — higher strike)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell Put — lower strike)"},
+        ]),
+        ("Put Credit Spread", "put_credit_spread", [
+            {"action": "sell", "option_type": "put", "label": "Leg 1 (Sell Put — higher strike)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy Put — lower strike)"},
+        ]),
+    ],
+    "Calendar": [
+        ("Call Calendar", "call_calendar", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call — far expiry)"},
+            {"action": "sell", "option_type": "call", "label": "Leg 2 (Sell Call — near expiry, same strike)"},
+        ]),
+        ("Put Calendar", "put_calendar", [
+            {"action": "buy", "option_type": "put", "label": "Leg 1 (Buy Put — far expiry)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell Put — near expiry, same strike)"},
+        ]),
+    ],
+    "Volatility": [
+        ("Straddle", "straddle", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy Call)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy Put — same strike)"},
+        ]),
+        ("Strangle", "strangle", [
+            {"action": "buy", "option_type": "call", "label": "Leg 1 (Buy OTM Call)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 2 (Buy OTM Put)"},
+        ]),
+    ],
+    "Multi-Leg": [
+        ("Iron Condor", "iron_condor", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell OTM Call)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 2 (Buy further OTM Call — wing)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 3 (Sell OTM Put)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 4 (Buy further OTM Put — wing)"},
+        ]),
+        ("Iron Butterfly", "iron_butterfly", [
+            {"action": "sell", "option_type": "call", "label": "Leg 1 (Sell ATM Call)"},
+            {"action": "sell", "option_type": "put", "label": "Leg 2 (Sell ATM Put — same strike)"},
+            {"action": "buy", "option_type": "call", "label": "Leg 3 (Buy OTM Call — wing)"},
+            {"action": "buy", "option_type": "put", "label": "Leg 4 (Buy OTM Put — wing)"},
+        ]),
+    ],
+}
+
+_OPTION_STYLE = questionary.Style([
+    ("selected", "fg:cyan noinherit"),
+    ("highlighted", "noinherit"),
+])
+
+
+def ask_option_strategy(ticker: str) -> Optional[TargetOption]:
+    """Interactive multi-step prompt to collect an option strategy. Returns None if skipped."""
+    wants_eval = questionary.confirm(
+        "Evaluate a specific option strategy?",
+        default=False,
+        style=_OPTION_STYLE,
+    ).ask()
+    if not wants_eval:
+        return None
+
+    category = questionary.select(
+        "Select strategy category:",
+        choices=list(STRATEGY_TAXONOMY.keys()),
+        style=_OPTION_STYLE,
+    ).ask()
+    if not category:
+        return None
+
+    strategies = STRATEGY_TAXONOMY[category]
+    selection = questionary.select(
+        "Select strategy:",
+        choices=[
+            questionary.Choice(display, value=(display, key, template))
+            for display, key, template in strategies
+        ],
+        style=_OPTION_STYLE,
+    ).ask()
+    if not selection:
+        return None
+    _display, strategy_key, legs_template = selection
+
+    legs = []
+    for leg_def in legs_template:
+        console.print(f"\n[cyan]{leg_def['label']}[/cyan]")
+        strike = questionary.text(
+            "Strike price:",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric strike price.",
+        ).ask()
+        if strike is None:
+            return None
+
+        expiration = questionary.text(
+            "Expiration date (YYYY-MM-DD):",
+            validate=lambda x: (
+                len(x) == 10 and x[4] == "-" and x[7] == "-"
+            ) or "Use YYYY-MM-DD format.",
+        ).ask()
+        if expiration is None:
+            return None
+
+        legs.append(OptionLeg(
+            action=leg_def["action"],
+            option_type=leg_def["option_type"],
+            strike=float(strike),
+            expiration=expiration,
+        ))
+
+    user_notes = questionary.text(
+        "Any constraints or context? (optional — press Enter to skip)\n"
+        "  e.g. 'Max $200/strategy. Don't widen the spread.'",
+        default="",
+    ).ask()
+
+    return TargetOption(
+        ticker=ticker,
+        strategy=strategy_key,
+        legs=legs,
+        user_notes=user_notes.strip() if user_notes and user_notes.strip() else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Existing position / mode selection
+# ---------------------------------------------------------------------------
+
+_MODE_NEW_OPTION = "Evaluate a new option strategy"
+_MODE_STOCK = "Review an existing stock position"
+_MODE_OPTION = "Review an existing option position"
+_MODE_SKIP = "Skip"
+
+
+def ask_existing_position(ticker: str) -> dict:
+    """Step 3 prompt: 4-way branch for analysis mode.
+
+    Returns a dict with exactly one non-None value among:
+        target_option, existing_stock_position, existing_option_position
+    All three are None when the user skips.
+    """
+    result = {
+        "target_option": None,
+        "existing_stock_position": None,
+        "existing_option_position": None,
+    }
+
+    mode = questionary.select(
+        "What would you like to do?",
+        choices=[_MODE_NEW_OPTION, _MODE_STOCK, _MODE_OPTION, _MODE_SKIP],
+        style=_OPTION_STYLE,
+    ).ask()
+
+    if mode is None or mode == _MODE_SKIP:
+        return result
+
+    if mode == _MODE_NEW_OPTION:
+        result["target_option"] = ask_option_strategy(ticker)
+        return result
+
+    if mode == _MODE_STOCK:
+        entry_price_str = questionary.text(
+            "Entry price per share ($):",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric price.",
+        ).ask()
+        if entry_price_str is None:
+            return result
+
+        shares_str = questionary.text(
+            "Number of shares held:",
+            validate=lambda x: x.replace(".", "", 1).isdigit() or "Enter a numeric quantity.",
+        ).ask()
+        if shares_str is None:
+            return result
+
+        result["existing_stock_position"] = ExistingStockPosition(
+            entry_price=float(entry_price_str),
+            shares=float(shares_str),
+        )
+        return result
+
+    if mode == _MODE_OPTION:
+        console.print("\n[cyan]Enter the details of your existing option position.[/cyan]")
+        target = ask_option_strategy(ticker)
+        if target is None:
+            return result
+
+        net_premium_str = questionary.text(
+            "Net premium paid/received per contract ($, positive = debit, negative = credit):",
+            validate=lambda x: (
+                x.lstrip("-").replace(".", "", 1).isdigit()
+            ) or "Enter a numeric premium (e.g. 8.50 or -1.20).",
+        ).ask()
+        if net_premium_str is None:
+            return result
+
+        contracts_str = questionary.text(
+            "Number of contracts held:",
+            validate=lambda x: x.isdigit() or "Enter a whole number.",
+        ).ask()
+        if contracts_str is None:
+            return result
+
+        result["existing_option_position"] = ExistingOptionPosition(
+            ticker=target.ticker,
+            strategy=target.strategy,
+            legs=target.legs,
+            net_premium=float(net_premium_str),
+            contracts=int(contracts_str),
+        )
+        return result
+
+    return result

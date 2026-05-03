@@ -188,6 +188,28 @@ class GraphSetup:
             },
         )
 
-        workflow.add_edge("Portfolio Manager", END)
+        # Post-pipeline nodes: route from Portfolio Manager based on what the user requested
+        from tradingagents.agents import (
+            create_option_trade_evaluator,
+            create_stock_position_reviewer,
+            create_option_position_reviewer,
+        )
+        workflow.add_node("Option Trade Evaluator", create_option_trade_evaluator(self.deep_thinking_llm))
+        workflow.add_node("Stock Position Reviewer", create_stock_position_reviewer(self.deep_thinking_llm))
+        workflow.add_node("Option Position Reviewer", create_option_position_reviewer(self.deep_thinking_llm))
+
+        workflow.add_conditional_edges(
+            "Portfolio Manager",
+            self.conditional_logic.route_post_pipeline,
+            {
+                "Option Trade Evaluator": "Option Trade Evaluator",
+                "Stock Position Reviewer": "Stock Position Reviewer",
+                "Option Position Reviewer": "Option Position Reviewer",
+                END: END,
+            },
+        )
+        workflow.add_edge("Option Trade Evaluator", END)
+        workflow.add_edge("Stock Position Reviewer", END)
+        workflow.add_edge("Option Position Reviewer", END)
 
         return workflow

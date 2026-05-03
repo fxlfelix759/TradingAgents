@@ -39,6 +39,7 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.agents.utils.options_tools import get_options_chain
 
+from tradingagents.agents.schemas import TargetOption
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
@@ -267,7 +268,108 @@ class TradingAgentsGraph:
         if updates:
             self.memory_log.batch_update_with_outcomes(updates)
 
-    def propagate(self, company_name, trade_date):
+    def _evaluate_option_only(self, company_name, trade_date, target_option, cached_path):
+        """Run only the OptionTradeEvaluator against a cached analysis JSON."""
+        with open(cached_path, encoding="utf-8") as f:
+            cached = json.load(f)
+
+        state = {
+            "company_of_interest": cached.get("company_of_interest", company_name),
+            "trade_date": cached.get("trade_date", str(trade_date)),
+            "target_option": target_option,
+            "final_trade_decision": cached.get("final_trade_decision", ""),
+            "investment_plan": cached.get("investment_plan", ""),
+            "trader_investment_plan": cached.get("trader_investment_decision", ""),
+            "market_report": cached.get("market_report", ""),
+            "fundamentals_report": cached.get("fundamentals_report", ""),
+            "sentiment_report": cached.get("sentiment_report", ""),
+            "news_report": cached.get("news_report", ""),
+            "options_report": cached.get("options_report", ""),
+            "messages": [],
+        }
+
+        from tradingagents.agents.analysts.option_trade_evaluator import create_option_trade_evaluator
+        evaluator = create_option_trade_evaluator(self.deep_thinking_llm)
+        result = evaluator(state)
+        report = result.get("option_evaluation_report", "")
+
+        # Persist back to the cached JSON
+        cached["option_evaluation_report"] = report
+        with open(cached_path, "w", encoding="utf-8") as f:
+            json.dump(cached, f, indent=4, ensure_ascii=False)
+
+        return report
+
+    def _review_stock_position_only(self, company_name, trade_date, position, cached_path):
+        """Run only the StockPositionReviewer against a cached analysis JSON."""
+        with open(cached_path, encoding="utf-8") as f:
+            cached = json.load(f)
+
+        state = {
+            "company_of_interest": cached.get("company_of_interest", company_name),
+            "trade_date": cached.get("trade_date", str(trade_date)),
+            "existing_stock_position": position,
+            "final_trade_decision": cached.get("final_trade_decision", ""),
+            "investment_plan": cached.get("investment_plan", ""),
+            "trader_investment_plan": cached.get("trader_investment_decision", ""),
+            "market_report": cached.get("market_report", ""),
+            "fundamentals_report": cached.get("fundamentals_report", ""),
+            "sentiment_report": cached.get("sentiment_report", ""),
+            "news_report": cached.get("news_report", ""),
+            "options_report": cached.get("options_report", ""),
+            "messages": [],
+        }
+
+        from tradingagents.agents.analysts.stock_position_reviewer import create_stock_position_reviewer
+        reviewer = create_stock_position_reviewer(self.deep_thinking_llm)
+        result = reviewer(state)
+        report = result.get("stock_position_review", "")
+
+        cached["stock_position_review"] = report
+        with open(cached_path, "w", encoding="utf-8") as f:
+            json.dump(cached, f, indent=4, ensure_ascii=False)
+
+        return report
+
+    def _review_option_position_only(self, company_name, trade_date, position, cached_path):
+        """Run only the OptionPositionReviewer against a cached analysis JSON."""
+        with open(cached_path, encoding="utf-8") as f:
+            cached = json.load(f)
+
+        state = {
+            "company_of_interest": cached.get("company_of_interest", company_name),
+            "trade_date": cached.get("trade_date", str(trade_date)),
+            "existing_option_position": position,
+            "final_trade_decision": cached.get("final_trade_decision", ""),
+            "investment_plan": cached.get("investment_plan", ""),
+            "trader_investment_plan": cached.get("trader_investment_decision", ""),
+            "market_report": cached.get("market_report", ""),
+            "fundamentals_report": cached.get("fundamentals_report", ""),
+            "sentiment_report": cached.get("sentiment_report", ""),
+            "news_report": cached.get("news_report", ""),
+            "options_report": cached.get("options_report", ""),
+            "messages": [],
+        }
+
+        from tradingagents.agents.analysts.option_position_reviewer import create_option_position_reviewer
+        reviewer = create_option_position_reviewer(self.deep_thinking_llm)
+        result = reviewer(state)
+        report = result.get("option_position_review", "")
+
+        cached["option_position_review"] = report
+        with open(cached_path, "w", encoding="utf-8") as f:
+            json.dump(cached, f, indent=4, ensure_ascii=False)
+
+        return report
+
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        target_option=None,
+        existing_stock_position=None,
+        existing_option_position=None,
+    ):
         """Run the trading agents graph for a company on a specific date.
 
         When ``checkpoint_enabled`` is set in config, the graph is recompiled
@@ -275,6 +377,41 @@ class TradingAgentsGraph:
         successful node on a subsequent invocation with the same ticker+date.
         """
         self.ticker = company_name
+
+        cached_path = (
+            Path(self.config["results_dir"])
+            / company_name
+            / "TradingAgentsStrategy_logs"
+            / f"full_states_log_{trade_date}.json"
+        )
+
+        if target_option is not None and cached_path.exists():
+            logger.info(
+                "Cache hit for %s on %s — running option evaluator only.",
+                company_name, trade_date,
+            )
+            report = self._evaluate_option_only(company_name, trade_date, target_option, cached_path)
+            return None, report
+
+        if existing_stock_position is not None and cached_path.exists():
+            logger.info(
+                "Cache hit for %s on %s — running stock position reviewer only.",
+                company_name, trade_date,
+            )
+            report = self._review_stock_position_only(company_name, trade_date, existing_stock_position, cached_path)
+            return None, report
+
+        if existing_option_position is not None and cached_path.exists():
+            logger.info(
+                "Cache hit for %s on %s — running option position reviewer only.",
+                company_name, trade_date,
+            )
+            report = self._review_option_position_only(company_name, trade_date, existing_option_position, cached_path)
+            return None, report
+
+        self._target_option = target_option
+        self._existing_stock_position = existing_stock_position
+        self._existing_option_position = existing_option_position
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.
         self._resolve_pending_entries(company_name)
@@ -310,7 +447,10 @@ class TradingAgentsGraph:
         # Initialize state — inject memory log context for PM.
         past_context = self.memory_log.get_past_context(company_name)
         init_agent_state = self.propagator.create_initial_state(
-            company_name, trade_date, past_context=past_context
+            company_name, trade_date, past_context=past_context,
+            target_option=getattr(self, "_target_option", None),
+            existing_stock_position=getattr(self, "_existing_stock_position", None),
+            existing_option_position=getattr(self, "_existing_option_position", None),
         )
         args = self.propagator.get_graph_args()
 
@@ -363,6 +503,9 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state["fundamentals_report"],
             "options_report": final_state.get("options_report", ""),
             "change_report": final_state.get("change_report", ""),
+            "option_evaluation_report": final_state.get("option_evaluation_report", ""),
+            "stock_position_review": final_state.get("stock_position_review", ""),
+            "option_position_review": final_state.get("option_position_review", ""),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

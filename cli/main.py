@@ -527,19 +527,47 @@ def get_user_selections():
     )
     analysis_date = get_analysis_date()
 
-    # Step 3: Output language
+    # Cache check: notify user if a prior report exists for this ticker+date
+    from tradingagents.default_config import DEFAULT_CONFIG as _CFG
+    _cache_log_path = (
+        Path(_CFG["results_dir"])
+        / selected_ticker
+        / "TradingAgentsStrategy_logs"
+        / f"full_states_log_{analysis_date}.json"
+    )
+    _cache_exists = _cache_log_path.exists()
+    if _cache_exists:
+        console.print(
+            f"\n[green]Found existing report for {selected_ticker} on {analysis_date}. "
+            "Cached analysis will be used if you request a position review or option evaluation.[/green]\n"
+        )
+
+    # Step 3: Analysis mode
     console.print(
         create_question_box(
-            "Step 3: Output Language",
+            "Step 3: Analysis Mode",
+            "Evaluate a new option strategy, review an existing position, or skip",
+        )
+    )
+    from cli.utils import ask_existing_position
+    step3 = ask_existing_position(selected_ticker)
+    target_option = step3["target_option"]
+    existing_stock_position = step3["existing_stock_position"]
+    existing_option_position = step3["existing_option_position"]
+
+    # Step 4: Output language
+    console.print(
+        create_question_box(
+            "Step 4: Output Language",
             "Select the language for analyst reports and final decision"
         )
     )
     output_language = ask_output_language()
 
-    # Step 4: Select analysts
+    # Step 5: Select analysts
     console.print(
         create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            "Step 5: Analysts Team", "Select your LLM analyst agents for the analysis"
         )
     )
     selected_analysts = select_analysts()
@@ -547,32 +575,31 @@ def get_user_selections():
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
 
-    # Step 5: Research depth
+    # Step 6: Research depth
     console.print(
         create_question_box(
-            "Step 5: Research Depth", "Select your research depth level"
+            "Step 6: Research Depth", "Select your research depth level"
         )
     )
     selected_research_depth = select_research_depth()
 
-    # Step 6: LLM Provider
+    # Step 7: LLM Provider
     console.print(
         create_question_box(
-            "Step 6: LLM Provider", "Select your LLM provider"
+            "Step 7: LLM Provider", "Select your LLM provider"
         )
     )
     selected_llm_provider, backend_url = select_llm_provider()
 
-    # Step 7: Thinking agents
+    # Step 8: Model selection
     console.print(
         create_question_box(
-            "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+            "Step 8: Model", "Select the model for analysis"
         )
     )
-    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-    selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+    selected_model = select_model(selected_llm_provider, backend_url)
 
-    # Step 8: Provider-specific thinking configuration
+    # Step 9: Provider-specific thinking configuration
     thinking_level = None
     reasoning_effort = None
     anthropic_effort = None
@@ -581,7 +608,7 @@ def get_user_selections():
     if provider_lower == "google":
         console.print(
             create_question_box(
-                "Step 8: Thinking Mode",
+                "Step 9: Thinking Mode",
                 "Configure Gemini thinking mode"
             )
         )
@@ -589,7 +616,7 @@ def get_user_selections():
     elif provider_lower == "openai":
         console.print(
             create_question_box(
-                "Step 8: Reasoning Effort",
+                "Step 9: Reasoning Effort",
                 "Configure OpenAI reasoning effort level"
             )
         )
@@ -597,7 +624,7 @@ def get_user_selections():
     elif provider_lower == "anthropic":
         console.print(
             create_question_box(
-                "Step 8: Effort Level",
+                "Step 9: Effort Level",
                 "Configure Claude effort level"
             )
         )
@@ -610,37 +637,17 @@ def get_user_selections():
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
-        "shallow_thinker": selected_shallow_thinker,
-        "deep_thinker": selected_deep_thinker,
+        "model": selected_model,
         "google_thinking_level": thinking_level,
         "openai_reasoning_effort": reasoning_effort,
         "anthropic_effort": anthropic_effort,
         "output_language": output_language,
+        "target_option": target_option,
+        "existing_stock_position": existing_stock_position,
+        "existing_option_position": existing_option_position,
+        "cache_exists": _cache_exists,
     }
 
-
-def get_ticker():
-    """Get ticker symbol from user input."""
-    return typer.prompt("", default="SPY")
-
-
-def get_analysis_date():
-    """Get the analysis date from user input."""
-    while True:
-        date_str = typer.prompt(
-            "", default=datetime.datetime.now().strftime("%Y-%m-%d")
-        )
-        try:
-            # Validate date format and ensure it's not in the future
-            analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-            if analysis_date.date() > datetime.datetime.now().date():
-                console.print("[red]Error: Analysis date cannot be in the future[/red]")
-                continue
-            return date_str
-        except ValueError:
-            console.print(
-                "[red]Error: Invalid date format. Please use YYYY-MM-DD[/red]"
-            )
 
 
 def save_report_to_disk(final_state, ticker: str, save_path: Path):
@@ -731,6 +738,23 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
+    # 6. Position Review
+    if final_state.get("stock_position_review"):
+        position_dir = save_path / "6_position_review"
+        position_dir.mkdir(exist_ok=True)
+        (position_dir / "stock_position_review.md").write_text(
+            final_state["stock_position_review"], encoding="utf-8"
+        )
+        sections.append(f"## VI. Stock Position Review\n\n{final_state['stock_position_review']}")
+
+    if final_state.get("option_position_review"):
+        position_dir = save_path / "6_position_review"
+        position_dir.mkdir(exist_ok=True)
+        (position_dir / "option_position_review.md").write_text(
+            final_state["option_position_review"], encoding="utf-8"
+        )
+        sections.append(f"## VII. Option Position Review\n\n{final_state['option_position_review']}")
+
     # Write consolidated report
     header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
@@ -796,6 +820,18 @@ def display_complete_report(final_state):
         if risk.get("judge_decision"):
             console.print(Panel("[bold]V. Portfolio Manager Decision[/bold]", border_style="green"))
             console.print(Panel(Markdown(risk["judge_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
+
+    if final_state.get("option_evaluation_report"):
+        console.print(Rule("Option Trade Evaluation", style="bold cyan"))
+        console.print(Markdown(final_state["option_evaluation_report"]))
+
+    if final_state.get("stock_position_review"):
+        console.print(Rule("Stock Position Review", style="bold green"))
+        console.print(Markdown(final_state["stock_position_review"]))
+
+    if final_state.get("option_position_review"):
+        console.print(Rule("Option Position Review", style="bold cyan"))
+        console.print(Markdown(final_state["option_position_review"]))
 
 
 def update_research_team_status(status):
@@ -945,8 +981,8 @@ def run_analysis(checkpoint: bool = False):
     config = DEFAULT_CONFIG.copy()
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
-    config["quick_think_llm"] = selections["shallow_thinker"]
-    config["deep_think_llm"] = selections["deep_thinker"]
+    config["quick_think_llm"] = selections["model"]
+    config["deep_think_llm"] = selections["model"]
     config["backend_url"] = selections["backend_url"]
     config["llm_provider"] = selections["llm_provider"].lower()
     # Provider-specific thinking configuration
@@ -1054,9 +1090,47 @@ def run_analysis(checkpoint: bool = False):
         )
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
 
+        target_option = selections.get("target_option")
+        existing_stock_position = selections.get("existing_stock_position")
+        existing_option_position = selections.get("existing_option_position")
+        cache_exists = selections.get("cache_exists", False)
+
+        if cache_exists:
+            if target_option:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    target_option=target_option,
+                )
+                if report:
+                    console.print(Rule("Option Trade Evaluation", style="bold cyan"))
+                    console.print(Markdown(report))
+                return
+            if existing_stock_position:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    existing_stock_position=existing_stock_position,
+                )
+                if report:
+                    console.print(Rule("Stock Position Review", style="bold green"))
+                    console.print(Markdown(report))
+                return
+            if existing_option_position:
+                _, report = graph.propagate(
+                    selections["ticker"], selections["analysis_date"],
+                    existing_option_position=existing_option_position,
+                )
+                if report:
+                    console.print(Rule("Option Position Review", style="bold cyan"))
+                    console.print(Markdown(report))
+                return
+
+        # Normal path: stream full graph with optional evaluator at the end
         # Initialize state and get graph args with callbacks
         init_agent_state = graph.propagator.create_initial_state(
-            selections["ticker"], selections["analysis_date"]
+            selections["ticker"], selections["analysis_date"],
+            target_option=target_option,
+            existing_stock_position=existing_stock_position,
+            existing_option_position=existing_option_position,
         )
         # Pass callbacks to graph config for tool execution tracking
         # (LLM tracking is handled separately via LLM constructor)

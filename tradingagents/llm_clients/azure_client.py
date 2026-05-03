@@ -4,7 +4,6 @@ from typing import Any, Optional
 from langchain_openai import AzureChatOpenAI
 
 from .base_client import BaseLLMClient, normalize_content
-from .validators import validate_model
 
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "api_key", "reasoning_effort",
@@ -34,8 +33,6 @@ class AzureOpenAIClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured AzureChatOpenAI instance."""
-        self.warn_if_unknown_model()
-
         llm_kwargs = {
             "model": self.model,
             "azure_deployment": os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", self.model),
@@ -47,6 +44,3 @@ class AzureOpenAIClient(BaseLLMClient):
 
         return NormalizedAzureChatOpenAI(**llm_kwargs)
 
-    def validate_model(self) -> bool:
-        """Azure accepts any deployed model name."""
-        return True

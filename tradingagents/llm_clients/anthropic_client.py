@@ -3,7 +3,6 @@ from typing import Any, Optional
 from langchain_anthropic import ChatAnthropic
 
 from .base_client import BaseLLMClient, normalize_content
-from .validators import validate_model
 
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "api_key", "max_tokens",
@@ -31,7 +30,6 @@ class AnthropicClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured ChatAnthropic instance."""
-        self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
         if self.base_url:
@@ -42,7 +40,3 @@ class AnthropicClient(BaseLLMClient):
                 llm_kwargs[key] = self.kwargs[key]
 
         return NormalizedChatAnthropic(**llm_kwargs)
-
-    def validate_model(self) -> bool:
-        """Validate model for Anthropic."""
-        return validate_model("anthropic", self.model)

@@ -5,6 +5,7 @@ import pandas as pd
 import yfinance as yf
 import os
 from .stockstats_utils import StockstatsUtils, _clean_dataframe, yf_retry, load_ohlcv, filter_financials_by_date
+from .options_greeks import compute_greeks, get_risk_free_rate
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -553,3 +554,113 @@ def get_options_chain_yfinance(
 
     except Exception as e:
         return f"Error retrieving options chain for {ticker}: {str(e)}"
+
+
+def get_full_options_chain_for_target(
+    ticker: str,
+    target_expiry: str,
+    num_neighbors: int = 2,
+) -> str:
+    """Fetch the full options chain for target_expiry plus neighbors with computed Greeks.
+
+    Returns all strikes (not top-5) for target_expiry, 1 prior expiry if available,
+    and up to num_neighbors expiries after target. Greeks are computed via Black-Scholes.
+    The target expiry section is labelled '(TARGET EXPIRY)' for easy LLM identification.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker.upper())
+        expirations = yf_retry(lambda: ticker_obj.options)
+
+        if not expirations:
+            return f"No options data available for {ticker.upper()}."
+
+        sorted_exps = sorted(expirations)
+        target_idx = None
+        for i, exp in enumerate(sorted_exps):
+            if exp >= target_expiry:
+                target_idx = i
+                break
+        if target_idx is None:
+            target_idx = len(sorted_exps) - 1
+
+        # 1 prior + target + num_neighbors after
+        start = max(0, target_idx - 1)
+        end = min(len(sorted_exps), target_idx + num_neighbors + 1)
+        selected = sorted_exps[start:end]
+
+        current_price_info = yf_retry(lambda: ticker_obj.fast_info)
+        try:
+            S = round(float(current_price_info.last_price), 2)
+        except Exception:
+            S = None
+
+        r = get_risk_free_rate()
+        today = datetime.today().date()
+
+        lines = [
+            f"# Full Options Chain for {ticker.upper()}",
+            f"# Target expiry: {target_expiry}  |  Current price: {S if S else 'N/A'}",
+            f"# Fetched: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+
+        for exp in selected:
+            label = "(TARGET EXPIRY)" if exp == sorted_exps[target_idx] else ""
+            chain = yf_retry(lambda e=exp: ticker_obj.option_chain(e))
+            calls = chain.calls.copy()
+            puts = chain.puts.copy()
+
+            try:
+                exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
+                T = max((exp_date - today).days / 365, 0.001)
+            except Exception:
+                T = 0.25
+
+            def add_greeks(df, option_type, S=S, T=T, r=r):
+                if S is None:
+                    for col in ("delta", "gamma", "theta", "vega"):
+                        df[col] = float("nan")
+                    return df
+                rows = []
+                for _, row in df.iterrows():
+                    sigma = max(float(row.get("impliedVolatility", 0.3) or 0.3), 0.001)
+                    K = float(row["strike"])
+                    greeks = compute_greeks(S=S, K=K, T=T, r=r, sigma=sigma, option_type=option_type)
+                    rows.append(greeks)
+                for col in ("delta", "gamma", "theta", "vega"):
+                    df[col] = [g[col] for g in rows]
+                return df
+
+            calls = add_greeks(calls, "call")
+            puts = add_greeks(puts, "put")
+
+            total_call_oi = int(calls["openInterest"].fillna(0).sum())
+            total_put_oi = int(puts["openInterest"].fillna(0).sum())
+            pc_ratio = round(total_put_oi / total_call_oi, 3) if total_call_oi > 0 else float("nan")
+            max_pain = _compute_max_pain(
+                calls[["strike", "openInterest"]].copy(),
+                puts[["strike", "openInterest"]].copy(),
+            )
+
+            display_cols = ["strike", "bid", "ask", "lastPrice", "volume", "openInterest",
+                            "impliedVolatility", "inTheMoney", "delta", "gamma", "theta", "vega"]
+            calls_display = calls[[c for c in display_cols if c in calls.columns]]
+            puts_display = puts[[c for c in display_cols if c in puts.columns]]
+
+            lines += [
+                f"## Expiry: {exp} {label}",
+                f"- Max Pain: {max_pain}  |  P/C OI Ratio: {pc_ratio}",
+                f"- Total Call OI: {total_call_oi:,}  |  Total Put OI: {total_put_oi:,}",
+                "",
+                "### Calls (all strikes)",
+                calls_display.to_string(index=False),
+                "",
+                "### Puts (all strikes)",
+                puts_display.to_string(index=False),
+                "",
+            ]
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error retrieving full options chain for {ticker}: {e}"
