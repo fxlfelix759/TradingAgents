@@ -98,3 +98,20 @@ class TestGetStocktwitsMessages:
         with patch("tradingagents.dataflows.stocktwits.requests.get", return_value=mock):
             result = get_stocktwits_messages("ZZZZ", "2026-05-02")
         assert "Error fetching Stocktwits" in result
+
+
+@pytest.mark.unit
+class TestGetStocktwitsPostsTool:
+    def test_tool_calls_fetcher_and_returns_string(self):
+        from tradingagents.agents.utils.social_media_tools import get_stocktwits_posts
+        with patch(
+            "tradingagents.agents.utils.social_media_tools.get_stocktwits_messages",
+            return_value="## Stocktwits: $AAPL\n\nSentiment summary: Bullish: 5",
+        ) as mock_fetch:
+            result = get_stocktwits_posts.invoke({"ticker": "AAPL", "curr_date": "2026-05-02"})
+        mock_fetch.assert_called_once_with("AAPL", "2026-05-02")
+        assert "Stocktwits" in result
+
+    def test_tool_has_correct_name(self):
+        from tradingagents.agents.utils.social_media_tools import get_stocktwits_posts
+        assert get_stocktwits_posts.name == "get_stocktwits_posts"
