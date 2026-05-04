@@ -19,7 +19,7 @@ def create_research_manager(llm):
 
         investment_debate_state = state["investment_debate_state"]
 
-        prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
+        prompt = f"""As the Research Manager, evaluate the bull/bear debate below and produce a structured investment plan for the trader.
 
 {instrument_context}
 
@@ -32,7 +32,20 @@ def create_research_manager(llm):
 - **Underweight**: Cautious view; recommend trimming exposure
 - **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold only when the evidence on both sides is genuinely balanced.
+
+---
+
+**Required output:**
+
+1. **Recommendation** — exactly one rating from the scale above.
+
+2. **Rationale** — 2-4 sentences explaining which side's arguments were stronger and why. Name the 1-2 most decisive pieces of evidence (e.g. a specific financial metric, a catalyst, a risk) that drove the recommendation. Acknowledge the strongest counterargument and explain why it was outweighed.
+
+3. **Strategic Actions** — concrete steps for the trader:
+   - Entry/exit action (buy, add, trim, exit, avoid)
+   - Suggested position sizing relative to the conviction level (e.g. "full position" for Buy, "half position" for Overweight)
+   - Key price levels or catalysts to watch that would change the view
 
 ---
 

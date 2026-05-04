@@ -5,9 +5,6 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
     get_news,
 )
-from tradingagents.dataflows.config import get_config
-
-
 def create_news_analyst(llm):
     def news_analyst_node(state):
         current_date = state["trade_date"]
@@ -19,8 +16,26 @@ def create_news_analyst(llm):
         ]
 
         system_message = (
-            "You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(query, start_date, end_date) for company-specific or targeted news searches, and get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            "You are a news analyst. Your job is to identify news events from the past week"
+            " that are relevant to a specific stock and its trading outlook.\n\n"
+            "Use the available tools:\n"
+            "- `get_news(ticker, start_date, end_date)` — search for company-specific headlines,"
+            " earnings releases, analyst upgrades/downgrades, product launches, regulatory news,"
+            " and management changes\n"
+            "- `get_global_news(curr_date, look_back_days, limit)` — search for macro and"
+            " geopolitical events that could affect the stock's sector or the broader market"
+            " (interest rates, inflation, trade policy, sector-wide trends)\n\n"
+            "Write a structured report with these sections:\n"
+            "1. **Company-Specific News** — material headlines directly about the company;"
+            " for each item note the date, source, and likely price impact (positive/negative/neutral)\n"
+            "2. **Sector & Industry News** — developments affecting the company's peers or industry\n"
+            "3. **Macro & Geopolitical Context** — relevant central bank moves, economic data,"
+            " or geopolitical events that could influence this stock\n"
+            "4. **News Sentiment Summary** — overall directional read from the news flow"
+            " (bullish / bearish / mixed) with the top 2-3 reasons\n\n"
+            "Be specific: quote headlines, cite dates, and explain the trading relevance of each"
+            " item. Do not pad the report with generic market commentary unrelated to this stock."
+            " Append a Markdown table summarising the key news items at the end."
             + get_language_instruction()
         )
 
@@ -32,8 +47,6 @@ def create_news_analyst(llm):
                     " Use the provided tools to progress towards answering the question."
                     " If you are unable to fully answer, that's OK; another assistant with different tools"
                     " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
                     " You have access to the following tools: {tool_names}.\n{system_message}"
                     "For your reference, the current date is {current_date}. {instrument_context}",
                 ),

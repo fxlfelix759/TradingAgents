@@ -1,3 +1,4 @@
+from tradingagents.agents.utils.agent_utils import build_instrument_context
 
 
 def create_bear_researcher(llm):
@@ -11,8 +12,11 @@ def create_bear_researcher(llm):
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
+        instrument_context = build_instrument_context(state["company_of_interest"])
 
-        prompt = f"""You are a Bear Analyst making the case against investing in the stock. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
+        prompt = f"""You are a Bear Analyst making the case against investing in the stock. {instrument_context}
+
+Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
 
 Key points to focus on:
 
@@ -31,6 +35,8 @@ Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bull argument: {current_response}
 Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the stock.
+
+Keep your response under 300 words. Lead with your 3 strongest points, each backed by a specific data point or fact. Directly address the most recent argument from the other side.
 """
 
         response = llm.invoke(prompt)

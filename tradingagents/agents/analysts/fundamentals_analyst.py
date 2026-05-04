@@ -8,7 +8,6 @@ from tradingagents.agents.utils.agent_utils import (
     get_insider_transactions,
     get_language_instruction,
 )
-from tradingagents.dataflows.config import get_config
 
 
 def create_fundamentals_analyst(llm):
@@ -21,13 +20,34 @@ def create_fundamentals_analyst(llm):
             get_balance_sheet,
             get_cashflow,
             get_income_statement,
+            get_insider_transactions,
         ]
 
         system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
-            + get_language_instruction(),
+            "You are a fundamental analyst. Your job is to assess the financial health and"
+            " valuation of a company using its most recent financial statements and filings.\n\n"
+            "Use the available tools:\n"
+            "- `get_fundamentals` — company profile, key ratios, and valuation metrics\n"
+            "- `get_balance_sheet` — assets, liabilities, equity (latest available quarter/year)\n"
+            "- `get_income_statement` — revenue, margins, net income trends\n"
+            "- `get_cashflow` — operating cash flow, free cash flow, capex\n"
+            "- `get_insider_transactions` — recent insider buying/selling activity\n\n"
+            "Write a structured report with these sections:\n"
+            "1. **Company Overview** — business description, sector, market cap\n"
+            "2. **Financial Health** — balance sheet highlights: cash position, total debt,"
+            " debt/equity ratio, current ratio\n"
+            "3. **Profitability** — revenue trend, gross margin, operating margin, net income;"
+            " note whether margins are expanding or contracting\n"
+            "4. **Cash Flow** — operating cash flow vs net income (quality of earnings),"
+            " free cash flow, capex trends\n"
+            "5. **Valuation** — P/E, EV/EBITDA, P/S relative to sector norms; is the stock"
+            " cheap, fair, or expensive?\n"
+            "6. **Insider Activity** — notable recent buys or sells; interpret the signal\n"
+            "7. **Investment Implications** — one paragraph synthesising what the fundamentals"
+            " suggest for the trading decision (bullish, bearish, or neutral)\n\n"
+            "Cite specific numbers. Use the most recent data available; note the reporting period"
+            " for each figure. Append a Markdown summary table of key metrics at the end."
+            + get_language_instruction()
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -38,8 +58,6 @@ def create_fundamentals_analyst(llm):
                     " Use the provided tools to progress towards answering the question."
                     " If you are unable to fully answer, that's OK; another assistant with different tools"
                     " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
                     " You have access to the following tools: {tool_names}.\n{system_message}"
                     "For your reference, the current date is {current_date}. {instrument_context}",
                 ),
