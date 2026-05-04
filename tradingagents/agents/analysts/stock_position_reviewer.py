@@ -8,7 +8,7 @@ from typing import Any, Dict
 import yfinance as yf
 
 from tradingagents.agents.schemas import StockPositionReviewReport, render_stock_position_review
-from tradingagents.agents.utils.agent_utils import build_instrument_context
+from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction
 from tradingagents.agents.utils.structured import bind_structured, invoke_structured_or_freetext
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ Given the EXISTING POSITION (not a new entry), provide:
 4. **Action Plan**: Concrete steps with specific price levels and sizing
 5. **Exit Triggers**: Specific price or event conditions that would change your recommendation
 
-Focus on WHAT TO DO WITH THE EXISTING POSITION, not whether the initial entry was correct."""
+Focus on WHAT TO DO WITH THE EXISTING POSITION, not whether the initial entry was correct.{get_language_instruction()}"""
 
         report_md = invoke_structured_or_freetext(
             structured_llm,

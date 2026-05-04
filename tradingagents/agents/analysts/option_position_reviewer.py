@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import yfinance as yf
 
 from tradingagents.agents.schemas import OptionPositionReviewReport, render_option_position_review
-from tradingagents.agents.utils.agent_utils import build_instrument_context
+from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction
 from tradingagents.agents.utils.structured import bind_structured, invoke_structured_or_freetext
 from tradingagents.dataflows.interface import get_full_options_chain_for_target
 
@@ -187,7 +187,7 @@ The user ALREADY OWNS this option position. Review it given the current market c
 5. **Roll Suggestion**: If rolling, specify target strike/expiry and estimated roll cost (or null)
 6. **Exit Triggers**: Specific price, DTE, or P&L% conditions that would change your recommendation
 
-Be specific — reference actual strikes, IVs, and Greeks from the chain data."""
+Be specific — reference actual strikes, IVs, and Greeks from the chain data.{get_language_instruction()}"""
 
         report_md = invoke_structured_or_freetext(
             structured_llm,
