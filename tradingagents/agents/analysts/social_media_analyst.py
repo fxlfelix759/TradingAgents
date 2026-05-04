@@ -1,6 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction, get_news
-from tradingagents.dataflows.config import get_config
+
+from tradingagents.agents.utils.agent_utils import (
+    build_instrument_context,
+    get_language_instruction,
+    get_news,
+)
+from tradingagents.agents.utils.social_media_tools import get_stocktwits_posts
 
 
 def create_social_media_analyst(llm):
@@ -10,11 +15,29 @@ def create_social_media_analyst(llm):
 
         tools = [
             get_news,
+            get_stocktwits_posts,
         ]
 
         system_message = (
-            "You are a social media and company specific news researcher/analyst tasked with analyzing social media posts, recent company news, and public sentiment for a specific company over the past week. You will be given a company's name your objective is to write a comprehensive long report detailing your analysis, insights, and implications for traders and investors on this company's current state after looking at social media and what people are saying about that company, analyzing sentiment data of what people feel each day about the company, and looking at recent company news. Use the get_news(query, start_date, end_date) tool to search for company-specific news and social media discussions. Try to look at all sources possible from social media to sentiment to news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            "You are a social media and sentiment analyst. Your job is to gauge public opinion"
+            " and community sentiment for a specific stock over the past week using two tools:\n\n"
+            "1. `get_news(ticker, start_date, end_date)` — searches recent news articles and press"
+            " coverage. Use this to find company-specific headlines and events that are driving"
+            " sentiment.\n"
+            "2. `get_stocktwits_posts(ticker, curr_date)` — fetches the 30 most recent messages"
+            " from Stocktwits, a social platform used by retail traders and investors. Each message"
+            " includes a Bullish or Bearish label where the author chose to add one.\n\n"
+            "Write a structured report covering:\n"
+            "- **Stocktwits sentiment breakdown**: Bullish/Bearish/Unlabelled counts and the key"
+            " themes in community posts (what are bulls saying? what are bears saying?)\n"
+            "- **News-driven sentiment**: notable headlines and how the market appears to be"
+            " reacting to them\n"
+            "- **Overall sentiment verdict**: synthesise both sources into a single directional"
+            " read (positive / negative / mixed) with supporting evidence\n\n"
+            "Be specific and quote or paraphrase actual posts and headlines. Do not invent data."
+            " If Stocktwits returns no messages (e.g. international ticker not listed there),"
+            " note that and rely on news only."
+            + " Make sure to append a Markdown table at the end summarising key sentiment signals."
             + get_language_instruction()
         )
 
@@ -26,8 +49,6 @@ def create_social_media_analyst(llm):
                     " Use the provided tools to progress towards answering the question."
                     " If you are unable to fully answer, that's OK; another assistant with different tools"
                     " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
                     " You have access to the following tools: {tool_names}.\n{system_message}"
                     "For your reference, the current date is {current_date}. {instrument_context}",
                 ),
@@ -45,7 +66,6 @@ def create_social_media_analyst(llm):
         result = chain.invoke(state["messages"])
 
         report = ""
-
         if len(result.tool_calls) == 0:
             report = result.content
 
