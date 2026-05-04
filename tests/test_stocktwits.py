@@ -62,7 +62,7 @@ class TestGetStocktwitsMessages:
                 "entities": {},
             },
         ]
-        with patch("requests.get", return_value=self._mock_response(messages)):
+        with patch("tradingagents.dataflows.stocktwits.requests.get", return_value=self._mock_response(messages)):
             result = get_stocktwits_messages("AAPL", "2026-05-02")
         assert "Bullish: 1" in result
         assert "Bearish: 1" in result
@@ -72,7 +72,7 @@ class TestGetStocktwitsMessages:
 
     def test_strips_exchange_suffix_before_api_call(self):
         from tradingagents.dataflows.stocktwits import get_stocktwits_messages
-        with patch("requests.get", return_value=self._mock_response([])) as mock_get:
+        with patch("tradingagents.dataflows.stocktwits.requests.get", return_value=self._mock_response([])) as mock_get:
             get_stocktwits_messages("CNR.TO", "2026-05-02")
         called_url = mock_get.call_args[0][0]
         assert "CNR.TO" not in called_url
@@ -80,13 +80,13 @@ class TestGetStocktwitsMessages:
 
     def test_empty_messages_returns_no_activity_string(self):
         from tradingagents.dataflows.stocktwits import get_stocktwits_messages
-        with patch("requests.get", return_value=self._mock_response([])):
+        with patch("tradingagents.dataflows.stocktwits.requests.get", return_value=self._mock_response([])):
             result = get_stocktwits_messages("AAPL", "2026-05-02")
         assert "No Stocktwits messages found" in result
 
     def test_api_error_returns_error_string(self):
         from tradingagents.dataflows.stocktwits import get_stocktwits_messages
-        with patch("requests.get", side_effect=Exception("connection refused")):
+        with patch("tradingagents.dataflows.stocktwits.requests.get", side_effect=Exception("connection refused")):
             result = get_stocktwits_messages("AAPL", "2026-05-02")
         assert "Error fetching Stocktwits" in result
 
@@ -95,6 +95,6 @@ class TestGetStocktwitsMessages:
         mock = MagicMock()
         mock.status_code = 404
         mock.json.return_value = {"response": {"status": 404}, "error": ["Not found"]}
-        with patch("requests.get", return_value=mock):
+        with patch("tradingagents.dataflows.stocktwits.requests.get", return_value=mock):
             result = get_stocktwits_messages("ZZZZ", "2026-05-02")
         assert "Error fetching Stocktwits" in result
